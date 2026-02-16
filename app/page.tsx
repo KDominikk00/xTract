@@ -20,14 +20,14 @@ const cardVariants = {
 export default function Home() {
   return (
     <motion.main
-      className="grid grid-cols-1 sm:grid-cols-4 gap-2 grid-flow-dense bg-(--color-bg) min-h-2 sm:max-w-5xl m-4 sm:mx-auto mt-24"
+      className="grid grid-cols-1 md:grid-cols-4 gap-2 bg-(--color-bg) min-h-2 sm:max-w-5xl m-4 my-20 sm:m-24 sm:mx-auto"
       initial="hidden"
       animate="show"
       variants={containerVariants}
     >
       <Link 
       href="/followed" 
-      className="col-span-4 min-h-56 border border-blue-500 rounded-xl shadow-md p-6 bg-linear-to-br from-[#0e111a] to-[#1a1f2a] text-white hover:shadow-lg transition-shadow"
+      className="sm:col-span-4 min-h-56 border border-blue-500 rounded-xl shadow-md p-6 bg-linear-to-br from-[#0e111a] to-[#1a1f2a] text-white hover:shadow-lg transition-shadow"
 >
       <motion.div
       variants={cardVariants}
@@ -43,7 +43,7 @@ export default function Home() {
 
       <Link
         href="/news"
-        className="block col-span-3 min-h-56 border border-blue-500 rounded-xl shadow-md p-6 
+        className="block sm:col-span-3 min-h-56 border border-blue-500 rounded-xl shadow-md p-6 
                   bg-linear-to-br from-[#0e111a] to-[#1a1f2a] text-white hover:shadow-lg 
                   transition-shadow cursor-pointer"
       >
@@ -53,15 +53,15 @@ export default function Home() {
             <ul className="space-y-4 text-xl">
               <li>
                 Market rallies as tech stocks climb{" "}
-                <span className="text-gray-500 text-xs ml-2">thedailywire.com</span>
+                <span className="text-gray-500 text-xs block sm:inline sm:ml-2">thedailywire.com</span>
               </li>
               <li>
                 Federal Reserve announces new policy{" "}
-                <span className="text-gray-500 text-xs ml-2">thedailywire.com</span>
+                <span className="text-gray-500 text-xs block sm:inline sm:ml-2">thedailywire.com</span>
               </li>
               <li>
                 Elon Musk teases new Tesla product{" "}
-                <span className="text-gray-500 text-xs ml-2">thedailywire.com</span>
+                <span className="text-gray-500 text-xs block sm:inline sm:ml-2">thedailywire.com</span>
               </li>
             </ul>
           </div>
@@ -72,8 +72,7 @@ export default function Home() {
         href="/summary"
         className="block col-span-1 min-h-56 border border-blue-500 rounded-xl shadow-md p-6 
                   bg-linear-to-br from-[#0e111a] to-[#1a1f2a] text-white hover:shadow-lg 
-                  transition-shadow cursor-pointer"
-      >
+                  transition-shadow cursor-pointer">
         <motion.div variants={cardVariants}>
           <div>
             <h2 className="text-2xl font-bold mb-4 text-blue-500">Market Summary</h2>
@@ -94,7 +93,7 @@ export default function Home() {
 
       <Link 
       href="/stocks/losers"
-      className="col-span-2 border border-blue-500 rounded-xl shadow-md p-6 bg-linear-to-br from-[#0e111a] to-[#1a1f2a] text-white hover:shadow-lg transition-shadow">
+      className="sm:col-span-2 border border-blue-500 rounded-xl shadow-md p-6 bg-linear-to-br from-[#0e111a] to-[#1a1f2a] text-white hover:shadow-lg transition-shadow">
       <motion.div
         variants={cardVariants}
       >
@@ -113,7 +112,7 @@ export default function Home() {
       </motion.div>
       </Link>
 
-      <Link href="stocks/gainers" className="col-span-2 min-h-56 border border-blue-500 rounded-xl shadow-md p-6 bg-linear-to-br from-[#0e111a] to-[#1a1f2a] text-white hover:shadow-lg transition-shadow"
+      <Link href="stocks/gainers" className="sm:col-span-2 min-h-56 border border-blue-500 rounded-xl shadow-md p-6 bg-linear-to-br from-[#0e111a] to-[#1a1f2a] text-white hover:shadow-lg transition-shadow"
 >
       <motion.div
       variants={cardVariants}
