@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@/lib/AuthProvider";
 import { motion, easeOut } from "framer-motion";
 import Link from "next/link";
 import { FiCheck, FiX } from "react-icons/fi";
@@ -19,6 +20,9 @@ const cardVariants = {
 };
 
 export default function Home() {
+  const { user } = useAuth();
+  const isFreeTier = true; // Placeholder
+
   return (
     <motion.main
       className="grid grid-cols-1 md:grid-cols-4 gap-2 bg-(--color-bg) min-h-2 sm:max-w-5xl m-4 my-20 sm:m-24 sm:mx-auto"
@@ -151,9 +155,20 @@ export default function Home() {
               <li><FiX className="inline text-red-500"/> AI powered forecasts</li>
               <li><FiX className="inline text-red-500"/> Private beta features</li>
             </ul>
-            <button className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-semibold transition-colors mt-6">
-              Get Started
+            {user && isFreeTier ? (
+            <button
+              className="w-full py-2 bg-gray-500 cursor-not-allowed rounded-lg font-semibold mt-6"
+              disabled
+            >
+              Current Tier
             </button>
+          ) : (
+            <Link href="/signup" className="w-full">
+              <button className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-semibold mt-6 cursor-pointer">
+                Get Started
+              </button>
+            </Link>
+          )}
           </div>
 
           <div className="flex flex-col border border-blue-500 rounded-2xl p-10 bg-linear-to-br from-[#0e111a] to-[#1a1f2a] shadow-md hover:shadow-lg transition-shadow">
@@ -171,7 +186,7 @@ export default function Home() {
               <li><FiX className="inline text-red-500"/> AI powered forecasts</li>
               <li><FiX className="inline text-red-500"/> Private beta features</li>
             </ul>
-            <button className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-semibold transition-colors mt-6">
+            <button className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-semibold transition-colors mt-6 cursor-pointer">
               Upgrade
             </button>
           </div>
@@ -183,10 +198,10 @@ export default function Home() {
             <h3 className="text-xl font-bold text-blue-500 mb-2">Pro</h3>
             <p className="text-white text-3xl font-bold mb-4">$15<span className="text-gray-400 text-sm">/month</span></p>
             <ul className="space-y-2 text-white text-sm flex-1">
-              <li><FiCheck className="inline text-green-500"/> Follow up to 3 stocks</li>
+              <li><FiCheck className="inline text-green-500"/> Follow unlimited stocks</li>
               <li><FiCheck className="inline text-green-500"/> AI buy/sell suggestions</li>
-              <li><FiCheck className="inline text-green-500"/> More AI messages</li>
-              <li><FiCheck className="inline text-green-500"/> More AI Insights</li>
+              <li><FiCheck className="inline text-green-500"/> Unlimited AI messages</li>
+              <li><FiCheck className="inline text-green-500"/> Unlimited AI Insights</li>
               <li><FiCheck className="inline text-green-500"/> Custom email notifications</li>
               <li><FiCheck className="inline text-green-500"/> AI powered watchlist analysis</li>
               <li><FiCheck className="inline text-green-500"/> Mid-day &amp; closing market reports</li>
@@ -194,7 +209,7 @@ export default function Home() {
               <li><FiCheck className="inline text-green-500"/> AI powered forecasts</li>
               <li><FiCheck className="inline text-green-500"/> Private beta features</li>
             </ul>
-            <button className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-semibold transition-colors mt-6">
+            <button className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-semibold transition-colors mt-6 cursor-pointer">
               Upgrade
             </button>
           </div>
