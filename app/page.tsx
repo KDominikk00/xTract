@@ -33,9 +33,9 @@ export default function Home() {
     async function fetchStocks() {
       try {
         setLoading(true);
-        const [gainers, losers] = await Promise.all([getGainers(), getLosers()]);
-        setTopGainers(Array.isArray(gainers) ? gainers : []);
-        setTopLosers(Array.isArray(losers) ? losers : []);
+        const [gainers, losers] = await Promise.all([getGainers(5), getLosers(5)]);
+        setTopGainers(gainers);
+        setTopLosers(losers);
       } catch (err) {
         console.error(err);
         setTopGainers([]);
@@ -47,22 +47,19 @@ export default function Home() {
     fetchStocks();
   }, []);
 
-  const renderStockList = (stocks: Stock[]) => {
-    if (!stocks || stocks.length === 0) return <p>No data available</p>;
-    return (
-      <ul className="space-y-4 text-xl">
-        {stocks.map((stock) => (
-          <li key={stock.symbol}>
-            {stock.symbol} ({stock.name}) ${stock.price.toFixed(2)}{" "}
-            <span className={`text-xs ${stock.changePercent >= 0 ? "text-green-500" : "text-red-500"}`}>
-              {stock.changePercent >= 0 ? "+" : ""}
-              {stock.changePercent.toFixed(2)}%
-            </span>
-          </li>
-        ))}
-      </ul>
-    );
-  };
+  const renderStockList = (stocks: Stock[]) => (
+    <ul className="space-y-4 text-xl">
+      {stocks.map((stock) => (
+        <li key={stock.symbol}>
+          {stock.symbol} ({stock.name}) ${stock.price.toFixed(2)}{" "}
+          <span className={`text-xs ${stock.changePercent >= 0 ? "text-green-500" : "text-red-500"}`}>
+            {stock.changePercent >= 0 ? "+" : ""}
+            {stock.changePercent.toFixed(2)}%
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <motion.main

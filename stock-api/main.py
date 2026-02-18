@@ -1,7 +1,13 @@
+# main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import yfinance as yf
-import pandas as pd
+from fastapi_utils.tasks import repeat_every
+import httpx
+import os
+from dotenv import load_dotenv
+
+load_dotenv("../.env.local")
+FMP_API_KEY = os.getenv("FMP_API_KEY")
 
 app = FastAPI()
 
@@ -13,83 +19,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SP500_TICKERS = []
-SP500_NAMES = {}
+cached_gainers = []
+cached_losers = []
 
 @app.on_event("startup")
-def load_sp500():
-    """
-    Load S&P 500 tickers and names from local CSV at startup.
-    Ensure 'sp500.csv' is in the same folder as this file.
-    """
-    global SP500_TICKERS, SP500_NAMES
-    df = pd.read_csv("sp500.csv")
-    SP500_TICKERS = df["Symbol"].tolist()
-    SP500_NAMES = dict(zip(df["Symbol"], df["Name"]))
+@repeat_every(seconds=15 * 60, raise_exceptions=True)
+async def fetch_top_movers():
+    """Fetch top gainers and losers from Financial Modeling Prep every 15 minutes."""
+    global cached_gainers, cached_losers
 
-def get_top_stocks(top_n=5, gainers=True):
-    """
-    Returns top gainers or losers from SP500_TICKERS.
-    """
-    data = []
-    for symbol in SP500_TICKERS:
+    async with httpx.AsyncClient() as client:
         try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
-            price = info.get("currentPrice")
-            prev_close = info.get("previousClose")
+            print("Fetching top movers from FMP...")
 
-            if price is None or prev_close is None:
-                continue
+            gainers_res = await client.get(
+                f"https://financialmodelingprep.com/stable/biggest-gainers?apikey={FMP_API_KEY}"
+            )
+            losers_res = await client.get(
+                f"https://financialmodelingprep.com/stable/biggest-losers?apikey={FMP_API_KEY}"
+            )
 
-            change_percent = ((price - prev_close) / prev_close) * 100
-            data.append({
-                "symbol": symbol,
-                "name": SP500_NAMES.get(symbol, ""),
-                "price": round(price, 2),
-                "changePercent": round(change_percent, 2)
-            })
-        except Exception:
-            continue
+            if gainers_res.status_code == 200:
+                cached_gainers = gainers_res.json()
+                print(f"✅ Updated {len(cached_gainers)} gainers.")
+            else:
+                print("❌ Error fetching gainers:", gainers_res.text)
 
-    sorted_data = sorted(data, key=lambda x: x["changePercent"], reverse=gainers)
-    return sorted_data[:top_n]
+            if losers_res.status_code == 200:
+                cached_losers = losers_res.json()
+                print(f"✅ Updated {len(cached_losers)} losers.")
+            else:
+                print("❌ Error fetching losers:", losers_res.text)
+
+        except Exception as e:
+            print("⚠️ Error fetching top movers:", e)
+
 
 @app.get("/stocks/gainers")
-def top_gainers(n: int = 5):
-    """
-    Get top gainers from S&P 500.
-    """
-    return get_top_stocks(top_n=n, gainers=True)
+def get_gainers(n: int = None):
+    if n:
+        return cached_gainers[:n]
+    return cached_gainers
 
 @app.get("/stocks/losers")
-def top_losers(n: int = 5):
-    """
-    Get top losers from S&P 500.
-    """
-    return get_top_stocks(top_n=n, gainers=False)
-
-@app.get("/stocks/{symbol}")
-def get_stock(symbol: str):
-    """
-    Get detailed info for a single stock.
-    """
-    try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
-        hist = ticker.history(period="1mo", interval="1d")
-        latest = hist.tail(1).iloc[0].to_dict()
-
-        return {
-            "symbol": symbol,
-            "name": info.get("shortName"),
-            "currency": info.get("currency"),
-            "price": info.get("currentPrice"),
-            "day_open": info.get("open"),
-            "day_high": info.get("dayHigh"),
-            "day_low": info.get("dayLow"),
-            "day_close": latest.get("Close"),
-            "history": hist.reset_index().to_dict(orient="records")
-        }
-    except Exception as e:
-        return {"error": str(e)}
+def get_losers(n: int = None):
+    if n:
+        return cached_losers[:n]
+    return cached_losers

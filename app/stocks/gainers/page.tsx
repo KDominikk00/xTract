@@ -1,15 +1,17 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import PageLayout from "@/components/PageLayout";
 import { motion, easeOut } from "framer-motion";
+import { useRouter } from "next/navigation";
 
 interface Stock {
-  name: string;
   symbol: string;
+  name: string;
   price: number;
   change: number;
-  changePercent: number;
-  volume: number;
+  changePercent: number; 
+  exchange: string;
 }
 
 const rowVariants = {
@@ -18,51 +20,100 @@ const rowVariants = {
 };
 
 export default function TopGainersPage() {
-  const stocks: Stock[] = [
-    { name: "NVIDIA Corp.", symbol: "NVDA", price: 410, change: 10, changePercent: 2.5, volume: 800000 },
-    { name: "Alphabet Inc.", symbol: "GOOGL", price: 2800, change: 45, changePercent: 1.64, volume: 500000 },
-    { name: "Meta Platforms", symbol: "META", price: 220, change: 6, changePercent: 2.8, volume: 600000 },
-    { name: "Apple Inc.", symbol: "AAPL", price: 153, change: 3, changePercent: 2.0, volume: 1000000 },
-  ];
+  const [stocks, setStocks] = useState<Stock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+
+  useEffect(() => {
+    async function fetchGainers() {
+      try {
+        setLoading(true);
+
+        const res = await fetch("http://localhost:8000/stocks/gainers");
+        if (!res.ok) throw new Error("Failed to fetch gainers");
+
+        const data: any[] = await res.json();
+
+        const mapped: Stock[] = data.map((s) => ({
+          symbol: s.symbol,
+          name: s.name,
+          price: Number(s.price),
+          change: Number(s.change),
+          changePercent: Number(s.changesPercentage),
+          exchange: s.exchange,
+        }));
+
+        setStocks(mapped);
+      } catch (err) {
+        console.error("Error fetching gainers:", err);
+        setStocks([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchGainers();
+  }, []);
+
+  const handleRowClick = (symbol: string) => {
+    router.push(`/stocks/${symbol}`);
+  };
 
   return (
     <PageLayout className="max-w-7xl mx-auto px-6 py-16 text-white">
       <h1 className="text-4xl font-bold text-blue-500 mb-8">Top Gainers Today</h1>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full table-auto border-collapse">
-          <thead className="bg-[#141c2f] text-left text-gray-400">
-            <tr>
-              <th className="px-4 py-2">Symbol</th>
-              <th className="px-4 py-2">Name</th>
-              <th className="px-4 py-2">Price</th>
-              <th className="px-4 py-2">Change</th>
-              <th className="px-4 py-2">% Change</th>
-              <th className="px-4 py-2">Volume</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stocks.map((stock) => (
-              <motion.tr
-                key={stock.symbol}
-                className="border-b border-[#1a1f2a] hover:bg-[#1f2535] cursor-pointer"
-                variants={rowVariants}
-              >
-                <td className="px-4 py-3 text-blue-500 font-semibold">{stock.symbol}</td>
-                <td className="px-4 py-3">{stock.name}</td>
-                <td className="px-4 py-3 font-semibold">${stock.price.toLocaleString()}</td>
-                <td className={`px-4 py-3 font-semibold ${stock.change >= 0 ? "text-green-500" : "text-red-500"}`}>
-                  {stock.change >= 0 ? "+" : ""}{stock.change}
-                </td>
-                <td className={`px-4 py-3 font-semibold ${stock.changePercent >= 0 ? "text-green-500" : "text-red-500"}`}>
-                  {stock.changePercent >= 0 ? "+" : ""}{stock.changePercent}%
-                </td>
-                <td className="px-4 py-3">{stock.volume.toLocaleString()}</td>
-              </motion.tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {loading ? (
+        <p>Loading...</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-auto border-collapse">
+            <thead className="bg-[#141c2f] text-left text-gray-400">
+              <tr>
+                <th className="px-4 py-2">Symbol</th>
+                <th className="px-4 py-2">Name</th>
+                <th className="px-4 py-2">Price</th>
+                <th className="px-4 py-2">Change</th>
+                <th className="px-4 py-2">% Change</th>
+                <th className="px-4 py-2">Exchange</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stocks.map((stock) => (
+                <motion.tr
+                  key={stock.symbol}
+                  className="border-b border-[#1a1f2a] hover:bg-[#1f2535] cursor-pointer"
+                  variants={rowVariants}
+                  initial="hidden"
+                  animate="show"
+                  onClick={() => handleRowClick(stock.symbol)}
+                >
+                  <td className="px-4 py-3 text-blue-500 font-semibold">{stock.symbol}</td>
+                  <td className="px-4 py-3">{stock.name}</td>
+                  <td className="px-4 py-3 font-semibold">${stock.price.toFixed(2)}</td>
+                  <td
+                    className={`px-4 py-3 font-semibold ${
+                      stock.change >= 0 ? "text-green-500" : "text-red-500"
+                    }`}
+                  >
+                    {stock.change >= 0 ? "+" : ""}
+                    {stock.change.toFixed(2)}
+                  </td>
+                  <td
+                    className={`px-4 py-3 font-semibold ${
+                      stock.changePercent >= 0 ? "text-green-500" : "text-red-500"
+                    }`}
+                  >
+                    {stock.changePercent >= 0 ? "+" : ""}
+                    {stock.changePercent.toFixed(2)}%
+                  </td>
+                  <td className="px-4 py-3">{stock.exchange}</td>
+                </motion.tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </PageLayout>
   );
 }
