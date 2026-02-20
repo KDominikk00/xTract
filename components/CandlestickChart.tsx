@@ -9,7 +9,7 @@ import {
   ColorType,
 } from "lightweight-charts";
 import type { CandlestickData, UTCTimestamp, ISeriesApi } from "lightweight-charts";
-import { getHistory } from "@/lib/fetchStock";
+import { getHistory, Candle } from "@/lib/fetchStock";
 
 export default function CandlestickChart() {
   const params = useParams();
@@ -38,7 +38,8 @@ export default function CandlestickChart() {
     if (!chartContainerRef.current) return;
 
     const chart = createChart(chartContainerRef.current, {
-      autoSize: true,
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight,
       layout: {
         background: { type: ColorType.Solid, color: "#131722" },
         textColor: "#d1d4dc",
@@ -73,7 +74,22 @@ export default function CandlestickChart() {
     lineSeriesRef.current = lineSeries;
     chartRef.current = chart;
 
-    return () => chart.remove();
+    const handleResize = () => {
+      if (!chartContainerRef.current || !chartRef.current) return;
+      chartRef.current.applyOptions({
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight,
+      });
+      chartRef.current.timeScale().fitContent();
+    };
+
+    window.addEventListener("resize", handleResize);
+    handleResize();
+
+    return () => {
+      chart.remove();
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -109,13 +125,14 @@ export default function CandlestickChart() {
   }, [stockSymbol, interval, period, chartType]);
 
   return (
-    <div className="w-full">
-      <div className="flex justify-between mb-2 items-center">
-        <div className="flex gap-2">
+    <div className="w-full h-96 sm:mb-20">
+      <div className="flex flex-row sm:justify-between sm:items-center mb-4 gap-2">
+
+        <div className="hidden sm:flex gap-2">
           {intervalOptions.map((opt) => (
             <button
               key={opt.label}
-              className={`px-3 py-1 rounded ${
+              className={`px-3 py-1 cursor-pointer rounded ${
                 selectedIntervalLabel === opt.label
                   ? "bg-blue-500 text-white"
                   : "bg-gray-700 text-gray-300"
@@ -131,8 +148,24 @@ export default function CandlestickChart() {
           ))}
         </div>
 
-        <div
-          className="relative w-48 h-10 bg-gray-700 rounded-full flex cursor-pointer select-none"
+        <select
+          className="sm:hidden w-16 px-3 py-2 rounded bg-gray-700 text-white"
+          value={selectedIntervalLabel}
+          onChange={(e) => {
+            const selected = intervalOptions.find((opt) => opt.label === e.target.value);
+            if (selected) {
+              setInterval(selected.interval);
+              setPeriod(selected.period);
+              setSelectedIntervalLabel(selected.label);
+            }
+          }}
+        >
+          {intervalOptions.map((opt) => (
+            <option key={opt.label} value={opt.label}>{opt.label}</option>
+          ))}
+        </select>
+
+        <div className="hidden sm:flex relative w-48 h-10 bg-gray-700 rounded-full cursor-pointer select-none"
           onClick={() =>
             setChartType((prev) => (prev === "candlestick" ? "line" : "candlestick"))
           }
@@ -142,30 +175,31 @@ export default function CandlestickChart() {
               chartType === "line" ? "translate-x-full" : "translate-x-0"
             }`}
           />
-
           <div className="flex w-full h-full z-10">
-            <div
-              className={`w-1/2 flex items-center justify-center font-semibold transition-colors duration-200 ${
-                chartType === "candlestick" ? "text-black" : "text-white"
-              }`}
-            >
+            <div className="w-1/2 flex items-center justify-center font-semibold text-white">
               Candle
             </div>
-
-            <div
-              className={`w-1/2 flex items-center justify-center font-semibold transition-colors duration-200 ${
-                chartType === "line" ? "text-black" : "text-white"
-              }`}
-            >
+            <div className={`w-1/2 flex items-center justify-center font-semibold transition-colors duration-200 ${
+              chartType === "line" ? "text-black" : "text-white"
+            }`}>
               Line
             </div>
           </div>
         </div>
+
+        <select
+          className="sm:hidden px-3 py-2 rounded bg-gray-700 text-white"
+          value={chartType}
+          onChange={(e) => setChartType(e.target.value as "candlestick" | "line")}
+        >
+          <option value="candlestick">Candle</option>
+          <option value="line">Line</option>
+        </select>
       </div>
 
       <div
         ref={chartContainerRef}
-        className="relative w-full h-96 rounded-xl border border-blue-500 shadow-md overflow-hidden mb-10"
+        className="w-full h-64 sm:h-full rounded-xl border border-blue-500 shadow-md overflow-hidden"
       />
     </div>
   );
