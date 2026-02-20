@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import PageLayout from "@/components/PageLayout";
+import CandlestickChart from "@/components/CandlestickChart";
 
 interface StockData {
   name: string;
@@ -81,12 +82,12 @@ export default function StockPage() {
   return (
     <PageLayout className="max-w-7xl mx-auto px-6 py-16 text-white">
 
-      <div className="mb-8 text-center md:text-left">
+      <div className="mb-14 text-center md:text-left">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex flex-col md:flex-row md:items-baseline gap-4">
             <h1 className="text-4xl font-bold text-blue-500">{stock.name} ({stock.symbol})</h1>
             <div className="text-white text-2xl font-semibold flex flex-col md:flex-row md:items-baseline gap-2 mt-1 md:mt-0">
-              <span>{stock.currentPrice.toLocaleString()}</span>
+              <span>${stock.currentPrice.toLocaleString()}</span>
               <span className={`text-lg ${stock.change >= 0 ? "text-green-500" : "text-red-500"}`}>
                 {stock.change >= 0 ? "+" : ""}{stock.change.toFixed(2)} ({stock.changePercent >= 0 ? "+" : ""}{stock.changePercent.toFixed(2)}%)
               </span>
@@ -103,8 +104,9 @@ export default function StockPage() {
         </div>
       </div>
 
-      <div className="w-full h-96 bg-[#141c2f] rounded-xl shadow-md flex items-center justify-center mb-8">
-        <p className="text-gray-500">Candlestick chart will go here</p>
+      <div id="container" className="w-full h-96 rounded-xl shadow-md flex items-center justify-center mb-8">
+        {/* <p className="text-gray-500">Candlestick chart will go here</p> */}
+        <CandlestickChart></CandlestickChart>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
