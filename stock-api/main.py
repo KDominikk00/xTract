@@ -5,6 +5,7 @@ import httpx
 import os
 from dotenv import load_dotenv
 import yfinance as yf
+from datetime import datetime, timedelta
 
 load_dotenv("../.env.local")
 FMP_API_KEY = os.getenv("FMP_API_KEY")
@@ -23,11 +24,12 @@ cached_gainers: list = []
 cached_losers: list = []
 cached_news: list = []
 cached_summary: list = []
+cached_summary_last_update: datetime | None = None
 
 def fetch_market_summary():
-    """Fetch S&P 500, Dow, and Nasdaq data from Yahoo Finance."""
-    global cached_summary
-    if cached_summary:
+    global cached_summary, cached_summary_last_update
+
+    if cached_summary and cached_summary_last_update and datetime.utcnow() - cached_summary_last_update < timedelta(hours=1):
         return cached_summary
 
     indices = [
@@ -53,35 +55,29 @@ def fetch_market_summary():
             })
 
     cached_summary = summary
+    cached_summary_last_update = datetime.utcnow()
     return summary
 
 @app.on_event("startup")
 @repeat_every(seconds=30 * 60, raise_exceptions=True)
-async def fetch_stocks():
-    """Fetch and cache top gainers/losers from FMP every 30 minutes."""
+async def refresh_stocks():
     global cached_gainers, cached_losers
     async with httpx.AsyncClient() as client:
         try:
-            gainers_res = await client.get(
-                f"https://financialmodelingprep.com/stable/biggest-gainers?apikey={FMP_API_KEY}"
-            )
+            gainers_res = await client.get(f"https://financialmodelingprep.com/stable/biggest-gainers?apikey={FMP_API_KEY}")
             if gainers_res.status_code == 200:
                 cached_gainers = gainers_res.json()
 
-            losers_res = await client.get(
-                f"https://financialmodelingprep.com/stable/biggest-losers?apikey={FMP_API_KEY}"
-            )
+            losers_res = await client.get(f"https://financialmodelingprep.com/stable/biggest-losers?apikey={FMP_API_KEY}")
             if losers_res.status_code == 200:
                 cached_losers = losers_res.json()
 
         except Exception as e:
             print("⚠️ Error fetching stocks:", e)
 
-
 @app.on_event("startup")
-@repeat_every(seconds=8 * 60 * 60, raise_exceptions=True)
-async def fetch_news():
-    """Fetch and cache financial news from FMP every 8 hours."""
+@repeat_every(seconds=8 * 60 * 60, raise_exceptions=True)  # 8 hours
+async def refresh_news():
     global cached_news
     async with httpx.AsyncClient() as client:
         try:
@@ -93,27 +89,25 @@ async def fetch_news():
         except Exception as e:
             print("⚠️ Error fetching news:", e)
 
+@app.on_event("startup")
+@repeat_every(seconds=60 * 60, raise_exceptions=True)
+async def refresh_summary():
+    fetch_market_summary()
+
 @app.get("/stocks/gainers")
 def get_gainers(n: int = None):
-    """Return cached top gainers."""
     return cached_gainers[:n] if n else cached_gainers
-
 
 @app.get("/stocks/losers")
 def get_losers(n: int = None):
-    """Return cached top losers."""
     return cached_losers[:n] if n else cached_losers
-
 
 @app.get("/stocks/news")
 def get_news(n: int = 20):
-    """Return cached financial news."""
     return cached_news[:n]
-
 
 @app.get("/stocks/summary-data")
 def get_summary():
-    """Return market summary for S&P 500, DOW, NASDAQ."""
     return fetch_market_summary()
 
 @app.get("/stocks/history/{symbol}")
@@ -122,17 +116,15 @@ def get_stock_history(
     period: str = Query("1mo", description="yfinance period, e.g. 1mo, 3mo, 6mo, 1y, ytd"),
     interval: str = Query("1d", description="yfinance interval, e.g. 1d, 1h, 15m")
 ):
-    """Return historical OHLC candle data for a given symbol."""
     try:
         yf_period = "ytd" if period.lower() == "ytd" else period
-
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period=yf_period, interval=interval)
 
         if hist.empty:
             return {"error": f"No historical data found for {symbol}"}
 
-        candles = [
+        return [
             {
                 "time": int(index.timestamp()),
                 "open": round(row["Open"], 2),
@@ -142,9 +134,6 @@ def get_stock_history(
             }
             for index, row in hist.iterrows()
         ]
-
-        return candles
-
     except Exception as e:
         print(f"⚠️ Error fetching history for {symbol}: {e}")
         return {"error": str(e)}

@@ -10,7 +10,7 @@ export type Stock = {
 
 export type NewsArticle = {
   title: string;
-  url: string;
+  link: string;
   site: string;
   publishedDate: string;
   image?: string;
@@ -70,7 +70,7 @@ export async function getNews(limit?: number): Promise<NewsArticle[]> {
   const data = await res.json();
   return data.map((item: any) => ({
     title: item.title,
-    url: item.url,
+    link: item.link,
     site: item.site ?? item.source ?? "",
     publishedDate: item.publishedDate ?? item.date ?? "",
     image: item.image ?? "",
@@ -95,3 +95,4 @@ export async function getHistory(
   if (!res.ok) throw new Error(`Failed to fetch history for ${symbol}`);
   return res.json();
 }
+
