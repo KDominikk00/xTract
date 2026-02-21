@@ -177,7 +177,7 @@ export default function Home() {
 
   return (
     <motion.section
-      className="mx-auto my-8 grid max-w-6xl grid-cols-1 gap-4 bg-(--color-bg) px-4 pb-8 sm:my-12 sm:px-6 md:grid-cols-4"
+      className="mx-auto my-8 grid max-w-6xl grid-cols-1 gap-2 bg-(--color-bg) px-4 pb-8 sm:my-12 sm:px-6 md:grid-cols-4"
       initial="hidden"
       animate="show"
       variants={containerVariants}
