@@ -1,5 +1,6 @@
 fastapi
 fastapi-utils
+typing-inspect
 httpx
 python-dotenv
 uvicorn[standard]
