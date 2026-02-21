@@ -1,7 +1,7 @@
 # xTract
 
 <p align="center">
-  <img src="/xtract-frontend/public/xtract-banner.svg" alt="xTract banner" width="100%" />
+  <img src="/public/xtract-banner.svg" alt="xTract banner" width="100%" />
 </p>
 
 xTract is an AI-powered stock intelligence platform built to help users move from raw market noise to faster, clearer decisions.
