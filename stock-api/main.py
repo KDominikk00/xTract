@@ -6,15 +6,27 @@ import os
 from dotenv import load_dotenv
 import yfinance as yf
 from datetime import datetime, timedelta
+from pathlib import Path
 
-load_dotenv("../.env.local")
+# Local development convenience only. Render will use real environment variables.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env.local")
 FMP_API_KEY = os.getenv("FMP_API_KEY")
 
 app = FastAPI(title="Stock API")
 
+def parse_origins(value: str | None) -> list[str]:
+    if not value:
+        return ["http://localhost:3000"]
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+frontend_origins = parse_origins(os.getenv("FRONTEND_ORIGINS"))
+frontend_origin_regex = os.getenv("FRONTEND_ORIGIN_REGEX")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=frontend_origins,
+    allow_origin_regex=frontend_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,6 +37,17 @@ cached_losers: list = []
 cached_news: list = []
 cached_summary: list = []
 cached_summary_last_update: datetime | None = None
+
+
+@app.get("/")
+def root():
+    return {"service": "stock-api", "status": "ok"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 
 def fetch_market_summary():
     global cached_summary, cached_summary_last_update
@@ -62,6 +85,10 @@ def fetch_market_summary():
 @repeat_every(seconds=30 * 60, raise_exceptions=True)
 async def refresh_stocks():
     global cached_gainers, cached_losers
+    if not FMP_API_KEY:
+        print("⚠️ FMP_API_KEY is missing. Skipping gainers/losers refresh.")
+        return
+
     async with httpx.AsyncClient() as client:
         try:
             gainers_res = await client.get(f"https://financialmodelingprep.com/stable/biggest-gainers?apikey={FMP_API_KEY}")
@@ -79,6 +106,10 @@ async def refresh_stocks():
 @repeat_every(seconds=8 * 60 * 60, raise_exceptions=True)  # 8 hours
 async def refresh_news():
     global cached_news
+    if not FMP_API_KEY:
+        print("⚠️ FMP_API_KEY is missing. Skipping news refresh.")
+        return
+
     async with httpx.AsyncClient() as client:
         try:
             news_res = await client.get(
