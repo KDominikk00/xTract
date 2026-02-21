@@ -81,44 +81,67 @@ def fetch_market_summary():
     cached_summary_last_update = datetime.utcnow()
     return summary
 
+def refresh_stocks_once():
+    global cached_gainers, cached_losers
+    if not FMP_API_KEY:
+        return
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            gainers_res = client.get(
+                f"https://financialmodelingprep.com/stable/biggest-gainers?apikey={FMP_API_KEY}"
+            )
+            if gainers_res.status_code == 200:
+                payload = gainers_res.json()
+                if isinstance(payload, list):
+                    cached_gainers = payload
+
+            losers_res = client.get(
+                f"https://financialmodelingprep.com/stable/biggest-losers?apikey={FMP_API_KEY}"
+            )
+            if losers_res.status_code == 200:
+                payload = losers_res.json()
+                if isinstance(payload, list):
+                    cached_losers = payload
+    except Exception as e:
+        print("⚠️ Error refreshing stocks on demand:", e)
+
+
+def refresh_news_once():
+    global cached_news
+    if not FMP_API_KEY:
+        return
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            news_res = client.get(
+                f"https://financialmodelingprep.com/stable/fmp-articles?page=0&limit=20&apikey={FMP_API_KEY}"
+            )
+            if news_res.status_code == 200:
+                payload = news_res.json()
+                if isinstance(payload, list):
+                    cached_news = payload
+    except Exception as e:
+        print("⚠️ Error refreshing news on demand:", e)
+
+
 @app.on_event("startup")
 @repeat_every(seconds=30 * 60, raise_exceptions=True)
 async def refresh_stocks():
-    global cached_gainers, cached_losers
     if not FMP_API_KEY:
         print("⚠️ FMP_API_KEY is missing. Skipping gainers/losers refresh.")
         return
 
-    async with httpx.AsyncClient() as client:
-        try:
-            gainers_res = await client.get(f"https://financialmodelingprep.com/stable/biggest-gainers?apikey={FMP_API_KEY}")
-            if gainers_res.status_code == 200:
-                cached_gainers = gainers_res.json()
-
-            losers_res = await client.get(f"https://financialmodelingprep.com/stable/biggest-losers?apikey={FMP_API_KEY}")
-            if losers_res.status_code == 200:
-                cached_losers = losers_res.json()
-
-        except Exception as e:
-            print("⚠️ Error fetching stocks:", e)
+    refresh_stocks_once()
 
 @app.on_event("startup")
 @repeat_every(seconds=8 * 60 * 60, raise_exceptions=True)  # 8 hours
 async def refresh_news():
-    global cached_news
     if not FMP_API_KEY:
         print("⚠️ FMP_API_KEY is missing. Skipping news refresh.")
         return
 
-    async with httpx.AsyncClient() as client:
-        try:
-            news_res = await client.get(
-                f"https://financialmodelingprep.com/stable/fmp-articles?page=0&limit=20&apikey={FMP_API_KEY}"
-            )
-            if news_res.status_code == 200:
-                cached_news = news_res.json()
-        except Exception as e:
-            print("⚠️ Error fetching news:", e)
+    refresh_news_once()
 
 @app.on_event("startup")
 @repeat_every(seconds=60 * 60, raise_exceptions=True)
@@ -127,14 +150,20 @@ async def refresh_summary():
 
 @app.get("/stocks/gainers")
 def get_gainers(n: int = None):
+    if not cached_gainers:
+        refresh_stocks_once()
     return cached_gainers[:n] if n else cached_gainers
 
 @app.get("/stocks/losers")
 def get_losers(n: int = None):
+    if not cached_losers:
+        refresh_stocks_once()
     return cached_losers[:n] if n else cached_losers
 
 @app.get("/stocks/news")
 def get_news(n: int = 20):
+    if not cached_news:
+        refresh_news_once()
     return cached_news[:n]
 
 @app.get("/stocks/summary-data")
