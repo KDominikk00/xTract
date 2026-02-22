@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildStockApiUrl, wakeStockApiIfNeeded } from "@/lib/server/stockApi";
+import { buildStockApiUrl } from "@/lib/server/stockApi";
 
 export async function GET(req: NextRequest) {
   try {
-    await wakeStockApiIfNeeded();
-
     const n = req.nextUrl.searchParams.get("n");
     const params = new URLSearchParams();
 

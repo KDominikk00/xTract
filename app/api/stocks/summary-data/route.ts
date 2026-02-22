@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import { buildStockApiUrl, wakeStockApiIfNeeded } from "@/lib/server/stockApi";
+import { buildStockApiUrl } from "@/lib/server/stockApi";
 
 export async function GET() {
   try {
-    await wakeStockApiIfNeeded();
-
     const res = await fetch(buildStockApiUrl("/stocks/summary-data"), {
       cache: "no-store",
     });

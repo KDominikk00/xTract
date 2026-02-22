@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildStockApiUrl, wakeStockApiIfNeeded } from "@/lib/server/stockApi";
+import { buildStockApiUrl } from "@/lib/server/stockApi";
 
 export async function GET(
   req: NextRequest,
@@ -9,8 +9,6 @@ export async function GET(
   const { symbol } = await params;
 
   try {
-    await wakeStockApiIfNeeded();
-
     const period = req.nextUrl.searchParams.get("period") ?? "1mo";
     const interval = req.nextUrl.searchParams.get("interval") ?? "1d";
 
