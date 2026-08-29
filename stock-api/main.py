@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.tasks import repeat_every
 import httpx
+import math
 import os
 from dotenv import load_dotenv
 import yfinance as yf
@@ -37,6 +38,8 @@ cached_losers: list = []
 cached_news: list = []
 cached_summary: list = []
 cached_summary_last_update: datetime | None = None
+cached_quotes: dict[str, tuple[dict, datetime]] = {}
+QUOTE_CACHE_TTL = timedelta(minutes=5)
 
 
 @app.get("/")
@@ -126,6 +129,107 @@ def refresh_news_once():
         print("⚠️ Error refreshing news on demand:", e)
 
 
+def finite_number(value):
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def get_cached_company_name(symbol: str) -> str:
+    for stock in cached_gainers + cached_losers:
+        if stock.get("symbol") == symbol and isinstance(stock.get("name"), str):
+            return stock["name"]
+    return symbol
+
+
+def fetch_yahoo_quote(symbol: str) -> dict:
+    ticker = yf.Ticker(symbol)
+    try:
+        fast_info = dict(ticker.fast_info)
+    except Exception as error:
+        print(f"Yahoo fast quote lookup failed for {symbol}: {type(error).__name__}")
+        fast_info = {}
+
+    try:
+        history = ticker.history(period="5d", interval="1d", auto_adjust=False)
+    except Exception as error:
+        print(f"Yahoo history lookup failed for {symbol}: {type(error).__name__}")
+        history = None
+
+    completed_rows = []
+    if history is not None and not history.empty:
+        for _, row in history.iterrows():
+            values = (row["Open"], row["High"], row["Low"], row["Close"])
+            if all(finite_number(value) is not None for value in values):
+                completed_rows.append(row)
+
+    latest = completed_rows[-1] if completed_rows else None
+    previous = completed_rows[-2] if len(completed_rows) > 1 else None
+
+    def field(name: str, fallback=None):
+        return finite_number(fast_info.get(name)) or fallback
+
+    current_price = field("lastPrice", finite_number(latest["Close"]) if latest is not None else None)
+    previous_close = field(
+        "previousClose",
+        finite_number(previous["Close"]) if previous is not None else current_price,
+    )
+
+    if current_price is None or previous_close is None:
+        raise HTTPException(status_code=404, detail=f"No quote found for {symbol}")
+
+    change = current_price - previous_close
+    return {
+        "name": get_cached_company_name(symbol),
+        "symbol": symbol,
+        "price": current_price,
+        "open": field("open", finite_number(latest["Open"]) if latest is not None else current_price),
+        "previousClose": previous_close,
+        "dayHigh": field("dayHigh", finite_number(latest["High"]) if latest is not None else current_price),
+        "dayLow": field("dayLow", finite_number(latest["Low"]) if latest is not None else current_price),
+        "volume": field("lastVolume", finite_number(latest["Volume"]) if latest is not None else 0),
+        "change": change,
+        "changesPercentage": (change / previous_close) * 100 if previous_close else 0,
+        "marketCap": field("marketCap"),
+        "yearHigh": field("yearHigh"),
+        "yearLow": field("yearLow"),
+    }
+
+
+def fetch_quote(symbol: str):
+    normalized_symbol = symbol.strip().upper()
+    cached = cached_quotes.get(normalized_symbol)
+    if cached and datetime.utcnow() - cached[1] < QUOTE_CACHE_TTL:
+        return cached[0]
+
+    if FMP_API_KEY:
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.get(
+                    "https://financialmodelingprep.com/stable/quote",
+                    params={"symbol": normalized_symbol, "apikey": FMP_API_KEY},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.HTTPError as error:
+            status_code = error.response.status_code if error.response is not None else "network"
+            # Do not log the exception directly because its request URL includes the API key.
+            print(f"FMP quote lookup failed for {normalized_symbol} (HTTP {status_code}); using Yahoo fallback.")
+        else:
+            if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+                quote = payload[0]
+                cached_quotes[normalized_symbol] = (quote, datetime.utcnow())
+                return quote
+
+            print(f"FMP returned no quote for {normalized_symbol}; using Yahoo fallback.")
+
+    quote = fetch_yahoo_quote(normalized_symbol)
+    cached_quotes[normalized_symbol] = (quote, datetime.utcnow())
+    return quote
+
+
 @app.on_event("startup")
 @repeat_every(seconds=30 * 60, raise_exceptions=True)
 async def refresh_stocks():
@@ -172,6 +276,11 @@ def get_news(n: int = 20):
 def get_summary():
     return fetch_market_summary()
 
+
+@app.get("/stocks/quote/{symbol}")
+def get_quote(symbol: str):
+    return fetch_quote(symbol)
+
 @app.get("/stocks/history/{symbol}")
 def get_stock_history(
     symbol: str,
@@ -186,16 +295,29 @@ def get_stock_history(
         if hist.empty:
             raise HTTPException(status_code=404, detail=f"No historical data found for {symbol}")
 
-        return [
-            {
-                "time": int(index.timestamp()),
-                "open": round(row["Open"], 2),
-                "high": round(row["High"], 2),
-                "low": round(row["Low"], 2),
-                "close": round(row["Close"], 2),
-            }
-            for index, row in hist.iterrows()
-        ]
+        candles = []
+        for index, row in hist.iterrows():
+            values = (row["Open"], row["High"], row["Low"], row["Close"])
+
+            # Yahoo can include an unfinished daily row with NaN prices. JSON cannot
+            # represent NaN, so omit it rather than failing the complete response.
+            if not all(math.isfinite(float(value)) for value in values):
+                continue
+
+            candles.append(
+                {
+                    "time": int(index.timestamp()),
+                    "open": round(float(row["Open"]), 2),
+                    "high": round(float(row["High"]), 2),
+                    "low": round(float(row["Low"]), 2),
+                    "close": round(float(row["Close"]), 2),
+                }
+            )
+
+        if not candles:
+            raise HTTPException(status_code=404, detail=f"No completed historical data found for {symbol}")
+
+        return candles
     except HTTPException:
         raise
     except Exception as e:

@@ -68,6 +68,25 @@ const suggestionTone: Record<AISuggestion["label"], string> = {
   "Strong Sell": "text-red-400",
 };
 
+const twoDecimalFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+function formatPrice(value: number) {
+  return twoDecimalFormatter.format(value);
+}
+
+function formatOptionalNumber(value: number | undefined) {
+  return value === undefined ? undefined : twoDecimalFormatter.format(value);
+}
+
+function formatWholeNumber(value: number | undefined) {
+  return value === undefined
+    ? undefined
+    : value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
 export default function StockPage() {
   const params = useParams();
   const router = useRouter();
@@ -151,34 +170,39 @@ export default function StockPage() {
         if (!res.ok) throw new Error("Failed to fetch stock data");
         const data: StockData = await res.json();
         setStock(data);
-
-        // Lightweight fallback recommendation list until a personalized engine is added.
-        const allSymbols = ["AAPL", "JPM", "XOM", "KO", "JNJ", "TSLA", "BAC", "CVX", "PG", "PFE", "V", "MA", "DIS", "NFLX", "WMT", "MCD"];
-        const filteredSymbols = allSymbols.filter(s => s !== stockSymbol);
-
-        const shuffled = filteredSymbols.sort(() => 0.5 - Math.random());
-        const recommendedSymbols = shuffled.slice(0, 4);
-
-        const recommendedData: StockData[] = await Promise.all(
-          recommendedSymbols.map(async (sym) => {
-            const r = await fetch(`/stocks/api/${sym}`);
-            if (!r.ok) throw new Error(`Failed to fetch stock ${sym}`);
-            return r.json();
-          })
-        );
-
-        setRelatedStocks(recommendedData);
-
       } catch (err) {
         console.error(err);
         setStock(null);
-        setRelatedStocks([]);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchStock();
+    async function fetchRecommendedStocks() {
+      // Recommendations are optional and must not invalidate the primary stock result.
+      const allSymbols = ["AAPL", "JPM", "XOM", "KO", "JNJ", "TSLA", "BAC", "CVX", "PG", "PFE", "V", "MA", "DIS", "NFLX", "WMT", "MCD"];
+      const recommendedSymbols = allSymbols
+        .filter((candidate) => candidate !== stockSymbol)
+        .sort(() => 0.5 - Math.random())
+        .slice(0, 4);
+
+      const results = await Promise.allSettled(
+        recommendedSymbols.map(async (recommendedSymbol) => {
+          const res = await fetch(`/stocks/api/${recommendedSymbol}`);
+          if (!res.ok) throw new Error(`Failed to fetch stock ${recommendedSymbol}`);
+          return (await res.json()) as StockData;
+        })
+      );
+
+      setRelatedStocks(
+        results
+          .filter((result): result is PromiseFulfilledResult<StockData> => result.status === "fulfilled")
+          .map((result) => result.value)
+      );
+    }
+
+    void fetchStock();
+    void fetchRecommendedStocks();
   }, [stockSymbol]);
 
   useEffect(() => {
@@ -330,7 +354,7 @@ export default function StockPage() {
             </h1>
 
             <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 font-semibold text-white">
-              <span className="text-xl sm:text-2xl">${stock.currentPrice.toLocaleString()}</span>
+              <span className="text-xl sm:text-2xl">${formatPrice(stock.currentPrice)}</span>
               <span className={`text-lg sm:text-xl ${stock.change >= 0 ? "text-green-500" : "text-red-500"}`}>
                 {stock.change >= 0 ? "+" : ""}
                 {stock.change.toFixed(2)} ({stock.changePercent >= 0 ? "+" : ""}
@@ -358,13 +382,13 @@ export default function StockPage() {
 
       <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Open", value: stock.open },
-          { label: "Close", value: stock.close },
-          { label: "High", value: stock.high },
-          { label: "Low", value: stock.low },
-          { label: "Volume", value: stock.volume.toLocaleString() },
-          { label: "Market Cap", value: stock.marketCap?.toLocaleString() },
-          { label: "Previous Close", value: stock.previousClose },
+          { label: "Open", value: formatPrice(stock.open) },
+          { label: "Close", value: formatPrice(stock.close) },
+          { label: "High", value: formatPrice(stock.high) },
+          { label: "Low", value: formatPrice(stock.low) },
+          { label: "Volume", value: formatWholeNumber(stock.volume) },
+          { label: "Market Cap", value: formatWholeNumber(stock.marketCap) },
+          { label: "Previous Close", value: formatOptionalNumber(stock.previousClose) },
         ].map(item => item.value != null && (
           <div key={item.label} className="flex h-full min-h-36 flex-col items-center justify-center rounded-xl bg-[#0e111a] p-4 text-center shadow-md">
             <p className="text-sm text-gray-400">{item.label}</p>
@@ -418,12 +442,12 @@ export default function StockPage() {
         <h2 className="text-2xl font-bold text-blue-500 mb-4">Fundamentals</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { label: "52W High", value: stock.fiftyTwoWeekHigh },
-            { label: "52W Low", value: stock.fiftyTwoWeekLow },
-            { label: "Trailing P/E", value: stock.trailingPE },
-            { label: "Forward P/E", value: stock.forwardPE },
-            { label: "Dividend Yield", value: stock.dividendYield },
-            { label: "Beta", value: stock.beta },
+            { label: "52W High", value: formatOptionalNumber(stock.fiftyTwoWeekHigh) },
+            { label: "52W Low", value: formatOptionalNumber(stock.fiftyTwoWeekLow) },
+            { label: "Trailing P/E", value: formatOptionalNumber(stock.trailingPE) },
+            { label: "Forward P/E", value: formatOptionalNumber(stock.forwardPE) },
+            { label: "Dividend Yield", value: formatOptionalNumber(stock.dividendYield) },
+            { label: "Beta", value: formatOptionalNumber(stock.beta) },
             { label: "Earnings Date", value: stock.earningsDate },
             { label: "Sector", value: stock.sector },
             { label: "Industry", value: stock.industry },
@@ -463,7 +487,7 @@ export default function StockPage() {
                     rel.change >= 0 ? "text-green-500" : "text-red-500"
                   }`}
                 >
-                  ${rel.close.toLocaleString()}
+                  ${formatPrice(rel.close)}
                 </div>
               </div>
 

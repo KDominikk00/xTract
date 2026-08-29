@@ -127,10 +127,11 @@ export async function getSummary(): Promise<MarketSummary[]> {
 export async function getHistory(
   symbol: string,
   period: string,
-  interval: string
+  interval: string,
+  signal?: AbortSignal
 ): Promise<Candle[]> {
   const path = `/api/stocks/history/${encodeURIComponent(symbol)}?period=${encodeURIComponent(period)}&interval=${encodeURIComponent(interval)}`;
-  const res = await fetch(toAppUrl(path), { cache: "no-store" });
+  const res = await fetch(toAppUrl(path), { cache: "no-store", signal });
   const data: unknown = await res.json();
 
   if (!res.ok) {
@@ -144,11 +145,17 @@ export async function getHistory(
     throw new Error(`Unexpected history response for ${symbol}`);
   }
 
-  return data.filter(isRecord).map((row) => ({
+  const candles = data.filter(isRecord).map((row) => ({
     time: toNumber(row.time),
     open: toNumber(row.open),
     high: toNumber(row.high),
     low: toNumber(row.low),
     close: toNumber(row.close),
   }));
+
+  if (!candles.length) {
+    throw new Error(`No historical data is available for ${symbol}`);
+  }
+
+  return candles;
 }

@@ -11,6 +11,14 @@ import {
 import type { CandlestickData, UTCTimestamp, ISeriesApi } from "lightweight-charts";
 import { getHistory, Candle } from "@/lib/fetchStock";
 
+const intervalOptions = [
+  { label: "1D", period: "1d", interval: "5m" },
+  { label: "1W", period: "5d", interval: "30m" },
+  { label: "1M", period: "1mo", interval: "1h" },
+  { label: "YTD", period: "ytd", interval: "1d" },
+  { label: "1Y", period: "1y", interval: "1d" },
+];
+
 export default function CandlestickChart() {
   const params = useParams();
   const symbolParam = Array.isArray(params.symbol) ? params.symbol[0] : params.symbol;
@@ -21,18 +29,11 @@ export default function CandlestickChart() {
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
 
-  const [interval, setInterval] = useState("1d");
-  const [period, setPeriod] = useState("1mo");
+  const [interval, setInterval] = useState("5m");
+  const [period, setPeriod] = useState("1d");
   const [chartType, setChartType] = useState<"candlestick" | "line">("candlestick");
   const [selectedIntervalLabel, setSelectedIntervalLabel] = useState("1D");
-
-  const intervalOptions = [
-    { label: "1D", period: "1mo", interval: "1d" },
-    { label: "1W", period: "3mo", interval: "1wk" },
-    { label: "1M", period: "6mo", interval: "1wk" },
-    { label: "YTD", period: "ytd", interval: "1d" },
-    { label: "1Y", period: "1y", interval: "1wk" },
-  ];
+  const [chartStatus, setChartStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -94,11 +95,16 @@ export default function CandlestickChart() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     async function fetchCandles() {
       if (!candleSeriesRef.current || !lineSeriesRef.current) return;
 
       try {
-        const data: Candle[] = await getHistory(stockSymbol, period, interval);
+        setChartStatus("loading");
+        const data: Candle[] = await getHistory(stockSymbol, period, interval, controller.signal);
+
+        if (controller.signal.aborted) return;
 
         const formatted: CandlestickData[] = data.map((d) => ({
           time: d.time as UTCTimestamp,
@@ -118,12 +124,20 @@ export default function CandlestickChart() {
         lineSeriesRef.current.applyOptions({ visible: chartType === "line" });
 
         chartRef.current?.timeScale().fitContent();
+        setChartStatus("ready");
       } catch (err) {
+        if (controller.signal.aborted) return;
+
         console.error("Error fetching historical data:", err);
+        candleSeriesRef.current?.setData([]);
+        lineSeriesRef.current?.setData([]);
+        setChartStatus("error");
       }
     }
 
     fetchCandles();
+
+    return () => controller.abort();
   }, [stockSymbol, interval, period, chartType]);
 
   return (
@@ -202,10 +216,14 @@ export default function CandlestickChart() {
         </div>
       </div>
 
-      <div
-        ref={chartContainerRef}
-        className="min-h-0 w-full flex-1 overflow-hidden rounded-xl border border-blue-500 shadow-md"
-      />
+      <div className="relative min-h-0 w-full flex-1 overflow-hidden rounded-xl border border-blue-500 shadow-md">
+        <div ref={chartContainerRef} className="h-full w-full" />
+        {chartStatus !== "ready" && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#131722]/80 text-sm text-gray-300">
+            {chartStatus === "loading" ? "Loading chart data..." : "Historical chart data is unavailable."}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
