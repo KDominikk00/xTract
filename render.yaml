@@ -13,8 +13,9 @@ services:
         sync: false
       - key: FRONTEND_ORIGINS
         value: https://xtract.top
-      - key: FRONTEND_ORIGIN_REGEX
-        value: https://.*\\.onrender\\.com
+      # Shared secret the web service sends as X-Stock-Api-Key; generated once and wired below.
+      - key: STOCK_API_SECRET
+        generateValue: true
 
   - type: web
     name: xtract-web
@@ -31,6 +32,11 @@ services:
           property: hostport
       - key: STOCK_API_BASE_URL
         sync: false
+      - key: STOCK_API_SECRET
+        fromService:
+          type: web
+          name: xtract-stock-api
+          envVarKey: STOCK_API_SECRET
       - key: NEXT_PUBLIC_APP_URL
         value: https://xtract.top
       - key: NEXT_PUBLIC_SUPABASE_URL

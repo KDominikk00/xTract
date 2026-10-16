@@ -1,11 +1,13 @@
-import { NextResponse } from "next/server";
-import { buildStockApiUrl } from "@/lib/server/stockApi";
+import { NextRequest, NextResponse } from "next/server";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { fetchStockApi } from "@/lib/server/stockApi";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const limited = rateLimit(req, { name: "stocks-list", limit: 120, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
-    const res = await fetch(buildStockApiUrl("/stocks/summary-data"), {
-      cache: "no-store",
-    });
+    const res = await fetchStockApi("/stocks/summary-data");
 
     const payload: unknown = await res.json();
 

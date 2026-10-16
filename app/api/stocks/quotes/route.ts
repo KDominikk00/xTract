@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import YahooFinance from "yahoo-finance2";
+import { normalizeSymbol } from "@/lib/symbols";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { fetchStockApi } from "@/lib/server/stockApi";
 
 type QuotesRequestBody = {
   symbols?: unknown;
@@ -16,14 +18,38 @@ function parseSymbols(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
 
   const parsed = input
-    .filter((value): value is string => typeof value === "string")
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter((symbol) => /^[A-Z.\-]{1,12}$/.test(symbol));
+    .map((value) => normalizeSymbol(value))
+    .filter((symbol): symbol is string => symbol !== null);
 
   return Array.from(new Set(parsed)).slice(0, 30);
 }
 
+// Quotes come from the stock API, which caches them, instead of hitting Yahoo directly per request.
+async function fetchQuoteRow(symbol: string): Promise<QuoteResponseRow | null> {
+  try {
+    const res = await fetchStockApi(`/stocks/quote/${encodeURIComponent(symbol)}`);
+    if (!res.ok) return null;
+
+    const quote = (await res.json()) as Record<string, unknown>;
+    const price = quote.price;
+    const changePercent = quote.changesPercentage;
+    if (typeof price !== "number" || typeof changePercent !== "number") return null;
+
+    return {
+      symbol,
+      name: typeof quote.name === "string" && quote.name.trim() ? quote.name : symbol,
+      currentPrice: price,
+      changePercent,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
+  const limited = rateLimit(req, { name: "stocks-quotes", limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
     const body = (await req.json()) as QuotesRequestBody;
     const symbols = parseSymbols(body.symbols);
@@ -32,30 +58,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ quotes: [] });
     }
 
-    const yf = new YahooFinance();
-    const results = await Promise.all(
-      symbols.map(async (symbol) => {
-        try {
-          const quote = await yf.quote(symbol);
-          if (
-            typeof quote.symbol !== "string" ||
-            typeof quote.regularMarketPrice !== "number" ||
-            typeof quote.regularMarketChangePercent !== "number"
-          ) {
-            return null;
-          }
-
-          return {
-            symbol: quote.symbol,
-            name: quote.shortName || quote.longName || quote.symbol,
-            currentPrice: quote.regularMarketPrice,
-            changePercent: quote.regularMarketChangePercent,
-          } as QuoteResponseRow;
-        } catch {
-          return null;
-        }
-      })
-    );
+    const results = await Promise.all(symbols.map(fetchQuoteRow));
 
     return NextResponse.json({
       quotes: results.filter((row): row is QuoteResponseRow => row !== null),

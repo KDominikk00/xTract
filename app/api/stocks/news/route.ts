@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildStockApiUrl } from "@/lib/server/stockApi";
+import { rateLimit } from "@/lib/server/rateLimit";
+import { fetchStockApi } from "@/lib/server/stockApi";
 
 export async function GET(req: NextRequest) {
+  const limited = rateLimit(req, { name: "stocks-list", limit: 120, windowMs: 60_000 });
+  if (limited) return limited;
+
   try {
     const n = req.nextUrl.searchParams.get("n");
     const params = new URLSearchParams();
@@ -10,9 +14,7 @@ export async function GET(req: NextRequest) {
       params.set("n", n);
     }
 
-    const res = await fetch(buildStockApiUrl("/stocks/news", params), {
-      cache: "no-store",
-    });
+    const res = await fetchStockApi("/stocks/news", params);
 
     const payload: unknown = await res.json();
 

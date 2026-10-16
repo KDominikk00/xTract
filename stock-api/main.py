@@ -1,9 +1,12 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.tasks import repeat_every
 import httpx
+import hmac
 import math
 import os
+import re
 from dotenv import load_dotenv
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -19,6 +22,21 @@ def parse_origins(value: str | None) -> list[str]:
     if not value:
         return ["https://xtract.top", "http://localhost:3000"]
     return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+# Shared secret between the Next.js server and this API. When unset (local dev) the check is skipped.
+STOCK_API_SECRET = os.getenv("STOCK_API_SECRET")
+PUBLIC_PATHS = {"/", "/health"}
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    # Let CORS preflights and the Render health check through.
+    if STOCK_API_SECRET and request.method != "OPTIONS" and request.url.path not in PUBLIC_PATHS:
+        provided = request.headers.get("x-stock-api-key", "")
+        if not hmac.compare_digest(provided.encode(), STOCK_API_SECRET.encode()):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return await call_next(request)
 
 
 frontend_origins = parse_origins(os.getenv("FRONTEND_ORIGINS"))
@@ -40,6 +58,31 @@ cached_summary: list = []
 cached_summary_last_update: datetime | None = None
 cached_quotes: dict[str, tuple[dict, datetime]] = {}
 QUOTE_CACHE_TTL = timedelta(minutes=5)
+# The API is unauthenticated, so cap the cache instead of letting arbitrary symbols grow it forever.
+QUOTE_CACHE_MAX_ENTRIES = 500
+
+SYMBOL_PATTERN = re.compile(r"^[A-Z][A-Z.\-]{0,11}$")
+ALLOWED_HISTORY_PERIODS = {"1d", "5d", "1mo", "3mo", "6mo", "ytd", "1y"}
+ALLOWED_HISTORY_INTERVALS = {"5m", "15m", "30m", "1h", "1d"}
+
+
+def validate_symbol(symbol: str) -> str:
+    normalized = symbol.strip().upper()
+    if not SYMBOL_PATTERN.match(normalized):
+        raise HTTPException(status_code=400, detail="Invalid stock symbol")
+    return normalized
+
+
+def store_quote(symbol: str, quote: dict) -> None:
+    now = datetime.utcnow()
+    if symbol not in cached_quotes and len(cached_quotes) >= QUOTE_CACHE_MAX_ENTRIES:
+        # Drop expired entries first, then the oldest one if the cache is still full.
+        for key in [k for k, (_, cached_at) in cached_quotes.items() if now - cached_at >= QUOTE_CACHE_TTL]:
+            del cached_quotes[key]
+        if len(cached_quotes) >= QUOTE_CACHE_MAX_ENTRIES:
+            oldest = min(cached_quotes, key=lambda k: cached_quotes[k][1])
+            del cached_quotes[oldest]
+    cached_quotes[symbol] = (quote, now)
 
 
 @app.get("/")
@@ -198,8 +241,32 @@ def fetch_yahoo_quote(symbol: str) -> dict:
     }
 
 
+def normalize_fmp_quote(quote: dict, symbol: str) -> dict:
+    """Map an FMP quote to the same shape fetch_yahoo_quote returns, so callers see one schema."""
+    name = quote.get("name")
+    change_percent = finite_number(quote.get("changesPercentage"))
+    if change_percent is None:
+        change_percent = finite_number(quote.get("changePercentage"))
+    return {
+        "name": name if isinstance(name, str) and name.strip() else get_cached_company_name(symbol),
+        "symbol": quote.get("symbol") if isinstance(quote.get("symbol"), str) else symbol,
+        "price": finite_number(quote.get("price")),
+        "open": finite_number(quote.get("open")),
+        "previousClose": finite_number(quote.get("previousClose")),
+        "dayHigh": finite_number(quote.get("dayHigh")),
+        "dayLow": finite_number(quote.get("dayLow")),
+        "volume": finite_number(quote.get("volume")),
+        "change": finite_number(quote.get("change")),
+        "changesPercentage": change_percent,
+        "marketCap": finite_number(quote.get("marketCap")),
+        "yearHigh": finite_number(quote.get("yearHigh")),
+        "yearLow": finite_number(quote.get("yearLow")),
+        "pe": finite_number(quote.get("pe")),
+    }
+
+
 def fetch_quote(symbol: str):
-    normalized_symbol = symbol.strip().upper()
+    normalized_symbol = validate_symbol(symbol)
     cached = cached_quotes.get(normalized_symbol)
     if cached and datetime.utcnow() - cached[1] < QUOTE_CACHE_TTL:
         return cached[0]
@@ -219,20 +286,23 @@ def fetch_quote(symbol: str):
             print(f"FMP quote lookup failed for {normalized_symbol} (HTTP {status_code}); using Yahoo fallback.")
         else:
             if isinstance(payload, list) and payload and isinstance(payload[0], dict):
-                quote = payload[0]
-                cached_quotes[normalized_symbol] = (quote, datetime.utcnow())
-                return quote
+                quote = normalize_fmp_quote(payload[0], normalized_symbol)
+                if quote["price"] is not None:
+                    store_quote(normalized_symbol, quote)
+                    return quote
 
             print(f"FMP returned no quote for {normalized_symbol}; using Yahoo fallback.")
 
     quote = fetch_yahoo_quote(normalized_symbol)
-    cached_quotes[normalized_symbol] = (quote, datetime.utcnow())
+    store_quote(normalized_symbol, quote)
     return quote
 
 
+# These are plain `def` tasks on purpose: repeat_every runs them in a threadpool, so the blocking
+# httpx/yfinance calls do not stall the event loop. Errors are caught so one failure cannot end the loop.
 @app.on_event("startup")
-@repeat_every(seconds=30 * 60, raise_exceptions=True)
-async def refresh_stocks():
+@repeat_every(seconds=30 * 60, raise_exceptions=False)
+def refresh_stocks():
     if not FMP_API_KEY:
         print("⚠️ FMP_API_KEY is missing. Skipping gainers/losers refresh.")
         return
@@ -240,8 +310,8 @@ async def refresh_stocks():
     refresh_stocks_once()
 
 @app.on_event("startup")
-@repeat_every(seconds=8 * 60 * 60, raise_exceptions=True)  # 8 hours
-async def refresh_news():
+@repeat_every(seconds=8 * 60 * 60, raise_exceptions=False)  # 8 hours
+def refresh_news():
     if not FMP_API_KEY:
         print("⚠️ FMP_API_KEY is missing. Skipping news refresh.")
         return
@@ -249,25 +319,28 @@ async def refresh_news():
     refresh_news_once()
 
 @app.on_event("startup")
-@repeat_every(seconds=60 * 60, raise_exceptions=True)
-async def refresh_summary():
-    fetch_market_summary()
+@repeat_every(seconds=60 * 60, raise_exceptions=False)
+def refresh_summary():
+    try:
+        fetch_market_summary()
+    except Exception as e:
+        print(f"⚠️ Error refreshing market summary: {type(e).__name__}")
 
 @app.get("/stocks/gainers")
-def get_gainers(n: int = None):
+def get_gainers(n: int | None = Query(None, ge=1, le=100)):
     # Lazy-refresh lets the API recover after cold starts without waiting for the next scheduler tick.
     if not cached_gainers:
         refresh_stocks_once()
     return cached_gainers[:n] if n else cached_gainers
 
 @app.get("/stocks/losers")
-def get_losers(n: int = None):
+def get_losers(n: int | None = Query(None, ge=1, le=100)):
     if not cached_losers:
         refresh_stocks_once()
     return cached_losers[:n] if n else cached_losers
 
 @app.get("/stocks/news")
-def get_news(n: int = 20):
+def get_news(n: int = Query(20, ge=1, le=100)):
     if not cached_news:
         refresh_news_once()
     return cached_news[:n]
@@ -287,8 +360,12 @@ def get_stock_history(
     period: str = Query("1mo", description="yfinance period, e.g. 1mo, 3mo, 6mo, 1y, ytd"),
     interval: str = Query("1d", description="yfinance interval, e.g. 1d, 1h, 15m")
 ):
+    symbol = validate_symbol(symbol)
+    yf_period = period.lower()
+    if yf_period not in ALLOWED_HISTORY_PERIODS or interval not in ALLOWED_HISTORY_INTERVALS:
+        raise HTTPException(status_code=400, detail="Unsupported period or interval")
+
     try:
-        yf_period = "ytd" if period.lower() == "ytd" else period
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period=yf_period, interval=interval)
 
