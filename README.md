@@ -25,6 +25,15 @@ xTract is designed to be:
 - Opinionated in presentation
 - Practical for everyday market tracking
 
+## Hosting Status
+
+xTract currently runs on free hosting tiers while it is a young project. In practice this means:
+
+- The site may be slow on the first visit after a quiet period, because free services go to sleep when idle and need up to a minute to wake up.
+- Market data can take a moment to appear right after a wake-up.
+
+Moving to always-on hosting costs money, and I want that to be driven by real use. If people find xTract useful and there is enough interest and funding to cover the costs, the plan is to upgrade to paid, always-on infrastructure for faster loads and better reliability. Feedback is always welcome and helps me prioritize what to improve.
+
 ## Tech Stack
 
 - Next.js (App Router)
