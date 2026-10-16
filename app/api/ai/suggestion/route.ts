@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserTier } from "@/lib/aiPlan";
 import { generateGeminiText } from "@/lib/server/gemini";
+import { rateLimit } from "@/lib/server/rateLimit";
 import { getUserFromRequest } from "@/lib/server/auth";
-import { consumeServerQuota } from "@/lib/server/aiQuota";
+import { consumeServerQuota, refundServerQuota } from "@/lib/server/aiQuota";
 
 type SuggestionBody = {
   symbol?: unknown;
@@ -15,6 +16,40 @@ type ParsedSuggestion = {
 };
 
 const VALID_LABELS: ParsedSuggestion["label"][] = ["Strong Buy", "Buy", "Hold", "Sell", "Strong Sell"];
+
+const NUMERIC_STOCK_FIELDS = [
+  "currentPrice",
+  "open",
+  "close",
+  "high",
+  "low",
+  "volume",
+  "change",
+  "changePercent",
+  "marketCap",
+  "trailingPE",
+  "forwardPE",
+  "dividendYield",
+  "beta",
+] as const;
+const TEXT_STOCK_FIELDS = ["name", "sector", "industry"] as const;
+
+// Whitelist fields and cap their size: the payload comes from the client and goes straight into the prompt.
+function sanitizeStockPayload(input: unknown): Record<string, number | string> {
+  if (typeof input !== "object" || input === null) return {};
+  const record = input as Record<string, unknown>;
+  const result: Record<string, number | string> = {};
+
+  for (const key of NUMERIC_STOCK_FIELDS) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) result[key] = value;
+  }
+  for (const key of TEXT_STOCK_FIELDS) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) result[key] = value.trim().slice(0, 100);
+  }
+  return result;
+}
 
 function parseSuggestion(text: string): ParsedSuggestion {
   // Deterministic fallback keeps UI behavior stable when model output is malformed.
@@ -45,6 +80,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Per-user burst limit on top of the plan quota, so one account cannot hammer the paid upstream.
+    const limited = rateLimit(req, { name: "ai-suggestion", key: user.id, limit: 10, windowMs: 60_000 });
+    if (limited) return limited;
+
     const body = (await req.json()) as SuggestionBody;
     if (typeof body.symbol !== "string" || !body.symbol.trim()) {
       return NextResponse.json({ error: "symbol is required" }, { status: 400 });
@@ -52,27 +91,13 @@ export async function POST(req: NextRequest) {
 
     const tier = getUserTier(user);
 
-    const stockPayload = typeof body.stock === "object" && body.stock !== null ? body.stock : {};
-    const symbol = body.symbol.toUpperCase().slice(0, 12);
+    const symbol = body.symbol.trim().toUpperCase();
+    if (!/^[A-Z.\-]{1,12}$/.test(symbol)) {
+      return NextResponse.json({ error: "Invalid symbol" }, { status: 400 });
+    }
+    const stockPayload = sanitizeStockPayload(body.stock);
 
-    const response = await generateGeminiText({
-      systemPrompt:
-        "You are an equity research assistant. Provide one informational suggestion label " +
-        "from this exact set: Strong Buy, Buy, Hold, Sell, Strong Sell. " +
-        "Use only provided data and avoid certainty language. " +
-        "Return strict JSON with keys label and reason. No markdown.",
-      userPrompt:
-        `Symbol: ${symbol}\n` +
-        `Stock data JSON:\n${JSON.stringify(stockPayload, null, 2)}\n\n` +
-        "Return JSON like: " +
-        '{"label":"Hold","reason":"One short reason under 220 chars. Mention this is informational."}',
-      temperature: 0.2,
-      maxOutputTokens: 220,
-      responseMimeType: "application/json",
-    });
-
-    const parsed = parseSuggestion(response);
-    // Quota is consumed only for successfully generated responses.
+    // Reserve quota before the paid model call so over-quota or parallel requests never reach Gemini.
     const quotaCheck = await consumeServerQuota(user.id, tier, "suggestion");
     if (!quotaCheck.allowed) {
       return NextResponse.json(
@@ -84,6 +109,31 @@ export async function POST(req: NextRequest) {
         { status: 429 }
       );
     }
+
+    let response: string;
+    try {
+      response = await generateGeminiText({
+        systemPrompt:
+          "You are an equity research assistant. Provide one informational suggestion label " +
+          "from this exact set: Strong Buy, Buy, Hold, Sell, Strong Sell. " +
+          "Use only provided data and avoid certainty language. " +
+          "Return strict JSON with keys label and reason. No markdown.",
+        userPrompt:
+          `Symbol: ${symbol}\n` +
+          `Stock data JSON:\n${JSON.stringify(stockPayload, null, 2)}\n\n` +
+          "Return JSON like: " +
+          '{"label":"Hold","reason":"One short reason under 220 chars. Mention this is informational."}',
+        temperature: 0.2,
+        maxOutputTokens: 220,
+        responseMimeType: "application/json",
+      });
+    } catch (modelError) {
+      // Transient model errors are not charged to the user.
+      await refundServerQuota(user.id, tier, "suggestion");
+      throw modelError;
+    }
+
+    const parsed = parseSuggestion(response);
 
     return NextResponse.json({
       label: parsed.label,

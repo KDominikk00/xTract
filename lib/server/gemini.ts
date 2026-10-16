@@ -27,6 +27,7 @@ type GeminiGenerateResponse = {
   };
 };
 
+const GEMINI_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash-lite";
 
 function mapRole(role: MessageRole): "user" | "model" {
@@ -58,12 +59,15 @@ export async function generateGeminiText({
   ];
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_MODEL}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_MODEL}:generateContent`,
     {
       method: "POST",
+      // The key goes in a header, not the URL, so it cannot leak through logs or error messages.
       headers: {
         "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
       },
+      signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
       body: JSON.stringify({
         systemInstruction: {
           parts: [{ text: systemPrompt }],

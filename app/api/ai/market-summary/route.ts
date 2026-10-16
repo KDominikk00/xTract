@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserTier, type AITier } from "@/lib/aiPlan";
+import { rateLimit } from "@/lib/server/rateLimit";
 import { getUserFromRequest } from "@/lib/server/auth";
 import { generateGeminiText } from "@/lib/server/gemini";
 
@@ -73,6 +74,10 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Per-user burst limit on top of the plan quota, so one account cannot hammer the paid upstream.
+    const limited = rateLimit(req, { name: "ai-market-summary", key: user.id, limit: 5, windowMs: 60_000 });
+    if (limited) return limited;
 
     const tier = getUserTier(user);
     if (!isPaidTier(tier)) {

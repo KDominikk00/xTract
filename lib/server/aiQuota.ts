@@ -94,3 +94,18 @@ export async function consumeServerQuota(
     },
   };
 }
+
+// Gives back a unit reserved by consumeServerQuota when the model call fails, so errors are not charged.
+export async function refundServerQuota(userId: string, tier: AITier, kind: AIUsageKind): Promise<void> {
+  if (isUnlimitedTier(tier)) return;
+
+  const { error } = await supabaseAdmin.rpc("refund_ai_quota", {
+    p_user_id: userId,
+    p_window_key: getQuotaWindowKey(tier),
+    p_usage_kind: kind,
+  });
+
+  if (error) {
+    console.error(`Failed to refund AI quota: ${error.message}`);
+  }
+}

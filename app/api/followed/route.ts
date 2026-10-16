@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserTier } from "@/lib/aiPlan";
+import { normalizeSymbol } from "@/lib/symbols";
 import { getUserFromRequest } from "@/lib/server/auth";
 import { supabaseAdmin } from "@/lib/server/supabaseAdmin";
 
 type FollowedBody = {
   symbol?: unknown;
 };
-
-function normalizeSymbol(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  const symbol = input.trim().toUpperCase();
-  if (!symbol) return null;
-  if (!/^[A-Z.\-]{1,12}$/.test(symbol)) return null;
-  return symbol;
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -55,47 +48,26 @@ export async function POST(req: NextRequest) {
     const tier = getUserTier(user);
     const followLimit = tier === "pro" ? null : tier === "plus" ? 10 : 3;
 
-    if (followLimit !== null) {
-      const { count, error: countError } = await supabaseAdmin
-        .from("followed_stocks")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
-
-      if (countError) {
-        throw new Error(countError.message);
-      }
-
-      const { data: existing, error: existingError } = await supabaseAdmin
-        .from("followed_stocks")
-        .select("symbol")
-        .eq("user_id", user.id)
-        .eq("symbol", symbol)
-        .maybeSingle();
-
-      if (existingError) {
-        throw new Error(existingError.message);
-      }
-
-      // Idempotent follows (already present) should not be blocked by plan limits.
-      const alreadyFollowed = Boolean(existing?.symbol);
-      if (!alreadyFollowed && (count ?? 0) >= followLimit) {
-        return NextResponse.json(
-          { error: "Follow limit reached for your current plan.", limit: followLimit },
-          { status: 403 }
-        );
-      }
-    }
-
-    const { error } = await supabaseAdmin.from("followed_stocks").upsert(
-      {
-        user_id: user.id,
-        symbol,
-      },
-      { onConflict: "user_id,symbol" }
-    );
+    // Count + insert run in one SQL function under a per-user lock so concurrent follows cannot exceed the limit.
+    const { data, error } = await supabaseAdmin.rpc("follow_stock", {
+      p_user_id: user.id,
+      p_symbol: symbol,
+      p_limit: followLimit,
+    });
 
     if (error) {
       throw new Error(error.message);
+    }
+
+    const result = (Array.isArray(data) ? data[0] : null) as { allowed: boolean } | null;
+    if (!result) {
+      throw new Error("Empty follow_stock response");
+    }
+    if (!result.allowed) {
+      return NextResponse.json(
+        { error: "Follow limit reached for your current plan.", limit: followLimit },
+        { status: 403 }
+      );
     }
 
     return NextResponse.json({ ok: true, symbol });

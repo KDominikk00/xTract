@@ -36,23 +36,10 @@ function normalizeTier(value: unknown): AITier {
 export function getUserTier(user: User | null | undefined): AITier {
   if (!user) return "free";
 
-  const metadata = user.user_metadata as Record<string, unknown> | undefined;
+  // Only app_metadata is trusted: users can edit their own user_metadata from the browser,
+  // while app_metadata is writable with the service-role key only.
   const appMetadata = user.app_metadata as Record<string, unknown> | undefined;
-
-  const candidates = [
-    metadata?.tier,
-    metadata?.plan,
-    appMetadata?.tier,
-    appMetadata?.plan,
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const parsed = normalizeTier(candidate);
-    if (parsed !== "free") return parsed;
-  }
-
-  return "free";
+  return normalizeTier(appMetadata?.tier ?? appMetadata?.plan);
 }
 
 export function getQuotaWindowKey(tier: AITier, now = new Date()): string {

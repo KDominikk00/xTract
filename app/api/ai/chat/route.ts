@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserTier } from "@/lib/aiPlan";
 import { generateGeminiText, type AIChatTurn } from "@/lib/server/gemini";
+import { rateLimit } from "@/lib/server/rateLimit";
 import { getUserFromRequest } from "@/lib/server/auth";
-import { consumeServerQuota } from "@/lib/server/aiQuota";
+import { consumeServerQuota, refundServerQuota } from "@/lib/server/aiQuota";
 
 type ChatRequestBody = {
   message?: unknown;
@@ -53,6 +54,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Per-user burst limit on top of the plan quota, so one account cannot hammer the paid upstream.
+    const limited = rateLimit(req, { name: "ai-chat", key: user.id, limit: 10, windowMs: 60_000 });
+    if (limited) return limited;
+
     const body = (await req.json()) as ChatRequestBody;
     if (typeof body.message !== "string" || !body.message.trim()) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
@@ -72,20 +77,7 @@ export async function POST(req: NextRequest) {
       (context.screenText ?? "No context provided.").slice(0, 7000),
     ].join("\n");
 
-    const reply = await generateGeminiText({
-      systemPrompt:
-        "You are xTract AI, a professional stock-market assistant inside a stock analytics app. " +
-        "Prioritize on-screen context when relevant, but you can also answer broader stock, investing, " +
-        "portfolio, and market-structure questions even when context is limited. " +
-        "If real-time data is unavailable or uncertain, clearly say that and provide the best practical guidance. " +
-        "Keep answers concise, actionable, and avoid false certainty.",
-      history,
-      userPrompt: `On-screen context:\n${contextBlock}\n\nUser question:\n${message}`,
-      temperature: 0.25,
-      maxOutputTokens: 550,
-    });
-
-    // Quota is consumed after a successful model response so transient model errors are not charged.
+    // Reserve quota before the paid model call so over-quota or parallel requests never reach Gemini.
     const quotaCheck = await consumeServerQuota(user.id, tier, "chat");
     if (!quotaCheck.allowed) {
       return NextResponse.json(
@@ -96,6 +88,26 @@ export async function POST(req: NextRequest) {
         },
         { status: 429 }
       );
+    }
+
+    let reply: string;
+    try {
+      reply = await generateGeminiText({
+        systemPrompt:
+          "You are xTract AI, a professional stock-market assistant inside a stock analytics app. " +
+          "Prioritize on-screen context when relevant, but you can also answer broader stock, investing, " +
+          "portfolio, and market-structure questions even when context is limited. " +
+          "If real-time data is unavailable or uncertain, clearly say that and provide the best practical guidance. " +
+          "Keep answers concise, actionable, and avoid false certainty.",
+        history,
+        userPrompt: `On-screen context:\n${contextBlock}\n\nUser question:\n${message}`,
+        temperature: 0.25,
+        maxOutputTokens: 550,
+      });
+    } catch (modelError) {
+      // Transient model errors are not charged to the user.
+      await refundServerQuota(user.id, tier, "chat");
+      throw modelError;
     }
 
     return NextResponse.json({ reply, quota: quotaCheck.snapshot, tier });

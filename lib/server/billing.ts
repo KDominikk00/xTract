@@ -74,10 +74,11 @@ async function findUserIdByCustomerId(customerId: string): Promise<string | null
 async function updateUserTierMetadata(userId: string, tier: "free" | "plus" | "pro", customerId: string) {
   const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserById(userId);
   if (userError) {
-    throw new Error(`Failed to load user metadata: ${userError.message}`);
+    throw new Error(`Failed to load user app metadata: ${userError.message}`);
   }
 
-  const current = (userData.user?.user_metadata ?? {}) as Record<string, unknown>;
+  // Stored in app_metadata (service-role only); user_metadata is user-editable and must not carry the plan.
+  const current = (userData.user?.app_metadata ?? {}) as Record<string, unknown>;
   const merged = {
     ...current,
     tier,
@@ -86,7 +87,7 @@ async function updateUserTierMetadata(userId: string, tier: "free" | "plus" | "p
   };
 
   const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-    user_metadata: merged,
+    app_metadata: merged,
   });
   if (updateError) {
     throw new Error(`Failed to update user tier: ${updateError.message}`);
@@ -192,17 +193,18 @@ export async function upsertSubscriptionFromStripe(subscription: StripeSubscript
   await recalculateAndSyncUserTier(userId, customerId);
 }
 
-export async function markCustomerAsFree(customerId: string) {
+export async function markSubscriptionAsCanceled(customerId: string, subscriptionId: string) {
   const userId = await findUserIdByCustomerId(customerId);
   if (!userId) return;
 
   const { error } = await supabaseAdmin
     .from("user_subscriptions")
     .update({ tier: "free", status: "canceled", updated_at: new Date().toISOString() })
-    .eq("stripe_customer_id", customerId);
+    // Only the deleted subscription: a replacement subscription may already be active.
+    .eq("id", subscriptionId);
 
   if (error) {
-    throw new Error(`Failed to mark subscription as free: ${error.message}`);
+    throw new Error(`Failed to mark subscription as canceled: ${error.message}`);
   }
 
   await recalculateAndSyncUserTier(userId, customerId);

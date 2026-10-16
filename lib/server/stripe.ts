@@ -33,6 +33,11 @@ export type StripeCheckoutSession = {
   metadata?: Record<string, string>;
 };
 
+export type StripeInvoiceLike = {
+  subscription?: string | { id?: string } | null;
+  parent?: { subscription_details?: { subscription?: string | { id?: string } | null } | null } | null;
+};
+
 export type StripeWebhookEvent = {
   id: string;
   type: string;
@@ -44,9 +49,11 @@ export type StripeWebhookEvent = {
 type StripeRequestOptions = {
   method?: "GET" | "POST";
   params?: URLSearchParams;
+  idempotencyKey?: string;
 };
 
 const WEBHOOK_TOLERANCE_SECONDS = 300;
+const STRIPE_TIMEOUT_MS = 20_000;
 
 function getPlanPriceId(plan: BillingPlan): string {
   if (plan === "plus") {
@@ -68,14 +75,16 @@ export function mapPriceToTier(priceId: string | null | undefined): "free" | "pl
 }
 
 async function stripeRequest<T>(path: string, options: StripeRequestOptions = {}): Promise<T> {
-  const { method = "GET", params } = options;
+  const { method = "GET", params, idempotencyKey } = options;
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${stripeSecretKey}`,
       "Content-Type": "application/x-www-form-urlencoded",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: method === "POST" ? params?.toString() : undefined,
+    signal: AbortSignal.timeout(STRIPE_TIMEOUT_MS),
   });
 
   const json = (await res.json()) as T & { error?: { message?: string } };
@@ -93,7 +102,13 @@ export async function createStripeCustomer(input: {
   const params = new URLSearchParams();
   if (input.email) params.append("email", input.email);
   params.append("metadata[supabase_user_id]", input.supabaseUserId);
-  return stripeRequest<{ id: string }>("customers", { method: "POST", params });
+  // Same user + email within Stripe's idempotency window returns the same customer, so a double-click
+  // on checkout cannot create duplicate Stripe customers.
+  return stripeRequest<{ id: string }>("customers", {
+    method: "POST",
+    params,
+    idempotencyKey: `create-customer:${input.supabaseUserId}:${input.email ?? ""}`,
+  });
 }
 
 export async function createStripeCheckoutSession(input: {
@@ -132,6 +147,10 @@ export async function createStripeBillingPortalSession(input: {
 
 export async function retrieveStripeSubscription(subscriptionId: string): Promise<StripeSubscription> {
   return stripeRequest<StripeSubscription>(`subscriptions/${subscriptionId}`);
+}
+
+export async function retrieveStripeInvoice(invoiceId: string): Promise<StripeInvoiceLike> {
+  return stripeRequest<StripeInvoiceLike>(`invoices/${invoiceId}`);
 }
 
 export function normalizeStripeId(value: unknown): string | null {
