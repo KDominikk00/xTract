@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeSymbol } from "@/lib/symbols";
 import { rateLimit } from "@/lib/server/rateLimit";
-import { fetchStockApi } from "@/lib/server/stockApi";
+import { fetchStockApi, readJson } from "@/lib/server/stockApi";
 
 // Only the ranges the charts use; arbitrary values would let callers trigger expensive upstream queries.
 const ALLOWED_PERIODS = new Set(["1d", "5d", "1mo", "3mo", "6mo", "ytd", "1y"]);
@@ -32,12 +32,12 @@ export async function GET(
 
     const res = await fetchStockApi(`/stocks/history/${encodeURIComponent(symbol)}`, query);
 
-    const payload: unknown = await res.json();
+    const payload: unknown = await readJson(res);
 
-    if (!res.ok) {
+    if (!res.ok || payload === null) {
       return NextResponse.json(
         { error: `Failed to load history for ${symbol}.`, detail: payload },
-        { status: res.status }
+        { status: res.ok ? 502 : res.status }
       );
     }
 

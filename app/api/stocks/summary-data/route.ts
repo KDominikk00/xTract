@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/lib/server/rateLimit";
-import { fetchStockApi } from "@/lib/server/stockApi";
+import { fetchStockApi, readJson } from "@/lib/server/stockApi";
 
 export async function GET(req: NextRequest) {
   const limited = rateLimit(req, { name: "stocks-list", limit: 120, windowMs: 60_000 });
@@ -9,12 +9,12 @@ export async function GET(req: NextRequest) {
   try {
     const res = await fetchStockApi("/stocks/summary-data");
 
-    const payload: unknown = await res.json();
+    const payload: unknown = await readJson(res);
 
-    if (!res.ok) {
+    if (!res.ok || payload === null) {
       return NextResponse.json(
         { error: "Failed to load market summary.", detail: payload },
-        { status: res.status }
+        { status: res.ok ? 502 : res.status }
       );
     }
 

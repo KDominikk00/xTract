@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeSymbol } from "@/lib/symbols";
 import { rateLimit } from "@/lib/server/rateLimit";
-import { fetchStockApi } from "@/lib/server/stockApi";
+import { fetchStockApi, readJson } from "@/lib/server/stockApi";
 
 type QuotesRequestBody = {
   symbols?: unknown;
@@ -30,7 +30,7 @@ async function fetchQuoteRow(symbol: string): Promise<QuoteResponseRow | null> {
     const res = await fetchStockApi(`/stocks/quote/${encodeURIComponent(symbol)}`);
     if (!res.ok) return null;
 
-    const quote = (await res.json()) as Record<string, unknown>;
+    const quote = (await readJson(res)) as Record<string, unknown>;
     const price = quote.price;
     const changePercent = quote.changesPercentage;
     if (typeof price !== "number" || typeof changePercent !== "number") return null;

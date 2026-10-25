@@ -64,11 +64,45 @@ function toAppUrl(pathname: string): string {
   return `${getAppBaseUrl()}${path}`;
 }
 
+// The hosting plan puts idle services to sleep, so the first requests after a quiet period can fail
+// for up to a minute while they wake. Retry transient failures instead of leaving the page broken.
+const CLIENT_RETRY_DELAYS_MS = [3_000, 6_000, 10_000, 15_000];
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
+}
+
+async function fetchWithRetry(url: string, init: RequestInit = {}): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    const isLastAttempt = attempt >= CLIENT_RETRY_DELAYS_MS.length;
+    try {
+      const res = await fetch(url, { cache: "no-store", ...init });
+      if (!RETRYABLE_STATUSES.has(res.status) || isLastAttempt) return res;
+    } catch (error) {
+      // Never retry a request the caller cancelled.
+      if (isLastAttempt || (error instanceof DOMException && error.name === "AbortError")) throw error;
+    }
+    await wait(CLIENT_RETRY_DELAYS_MS[attempt], init.signal ?? undefined);
+  }
+}
+
 async function fetchStocks(endpoint: string, limit?: number): Promise<Stock[]> {
   const url = new URL(toAppUrl(`/api/stocks/${endpoint}`));
   if (limit) url.searchParams.set("n", limit.toString());
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
+  const res = await fetchWithRetry(url.toString());
   if (!res.ok) throw new Error(`Failed to fetch ${endpoint}`);
 
   const data: unknown = await res.json();
@@ -98,7 +132,7 @@ export async function getNews(limit?: number): Promise<NewsArticle[]> {
   const url = new URL(toAppUrl("/api/stocks/news"));
   if (limit) url.searchParams.set("n", limit.toString());
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
+  const res = await fetchWithRetry(url.toString());
   if (!res.ok) throw new Error("Failed to fetch news");
 
   const data: unknown = await res.json();
@@ -117,9 +151,7 @@ export async function getNews(limit?: number): Promise<NewsArticle[]> {
 }
 
 export async function getSummary(): Promise<MarketSummary[]> {
-  const res = await fetch(toAppUrl("/api/stocks/summary-data"), {
-    cache: "no-store",
-  });
+  const res = await fetchWithRetry(toAppUrl("/api/stocks/summary-data"));
   if (!res.ok) throw new Error("Failed to fetch market summary");
   return res.json();
 }
@@ -131,8 +163,8 @@ export async function getHistory(
   signal?: AbortSignal
 ): Promise<Candle[]> {
   const path = `/api/stocks/history/${encodeURIComponent(symbol)}?period=${encodeURIComponent(period)}&interval=${encodeURIComponent(interval)}`;
-  const res = await fetch(toAppUrl(path), { cache: "no-store", signal });
-  const data: unknown = await res.json();
+  const res = await fetchWithRetry(toAppUrl(path), { signal });
+  const data: unknown = await res.json().catch(() => null);
 
   if (!res.ok) {
     if (isRecord(data) && typeof data.detail === "string") {

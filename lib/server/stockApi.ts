@@ -41,13 +41,41 @@ export function buildStockApiUrl(pathname: string, searchParams?: URLSearchParam
 }
 
 const STOCK_API_TIMEOUT_MS = 15_000;
+// Render free instances sleep when idle and can take up to ~a minute to wake. While waking, the edge
+// answers 429/502/503/504 (or the connection times out), so retry those instead of failing the page.
+const RETRY_DELAYS_MS = [1_500, 3_000, 6_000, 10_000];
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Server-to-server call to the stock API: adds the shared secret and a timeout so a slow upstream cannot hang requests.
-export function fetchStockApi(pathname: string, searchParams?: URLSearchParams): Promise<Response> {
+export async function fetchStockApi(pathname: string, searchParams?: URLSearchParams): Promise<Response> {
   const secret = process.env.STOCK_API_SECRET?.trim();
-  return fetch(buildStockApiUrl(pathname, searchParams), {
-    cache: "no-store",
-    headers: secret ? { "X-Stock-Api-Key": secret } : undefined,
-    signal: AbortSignal.timeout(STOCK_API_TIMEOUT_MS),
-  });
+  const url = buildStockApiUrl(pathname, searchParams);
+
+  for (let attempt = 0; ; attempt += 1) {
+    const isLastAttempt = attempt >= RETRY_DELAYS_MS.length;
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        headers: secret ? { "X-Stock-Api-Key": secret } : undefined,
+        signal: AbortSignal.timeout(STOCK_API_TIMEOUT_MS),
+      });
+      if (!RETRYABLE_STATUSES.has(res.status) || isLastAttempt) return res;
+    } catch (error) {
+      if (isLastAttempt) throw error;
+    }
+    await sleep(RETRY_DELAYS_MS[attempt]);
+  }
+}
+
+// Upstream error pages (e.g. a plain-text 429) are not JSON; return null instead of throwing.
+export async function readJson(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
