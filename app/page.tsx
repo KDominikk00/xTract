@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/AuthProvider";
 import { motion, easeOut } from "framer-motion";
 import Link from "next/link";
 import { FiCheck, FiX } from "react-icons/fi";
-import { getGainers, getLosers, getNews, getSummary, Stock, NewsArticle, MarketSummary } from "@/lib/fetchStock";
+import { fetchMarketData, getGainers, getLosers, getNews, getSummary, Stock, NewsArticle, MarketSummary } from "@/lib/fetchStock";
 import { getUserTier } from "@/lib/aiPlan";
 import PlanActionButton from "@/components/PlanActionButton";
 import { getAccessToken } from "@/lib/getAccessToken";
@@ -121,7 +121,7 @@ export default function Home() {
         }
 
         // Resolve fresh quote data for followed symbols so homepage cards stay live.
-        const quotesRes = await fetch("/api/stocks/quotes", {
+        const quotesRes = await fetchMarketData("/api/stocks/quotes", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

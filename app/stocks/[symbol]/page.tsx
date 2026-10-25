@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchMarketData } from "@/lib/fetchStock";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -166,7 +167,7 @@ export default function StockPage() {
     async function fetchStock() {
       setLoading(true);
       try {
-        const res = await fetch(`/stocks/api/${stockSymbol}`);
+        const res = await fetchMarketData(`/stocks/api/${stockSymbol}`);
         if (!res.ok) throw new Error("Failed to fetch stock data");
         const data: StockData = await res.json();
         setStock(data);
@@ -188,7 +189,7 @@ export default function StockPage() {
 
       const results = await Promise.allSettled(
         recommendedSymbols.map(async (recommendedSymbol) => {
-          const res = await fetch(`/stocks/api/${recommendedSymbol}`);
+          const res = await fetchMarketData(`/stocks/api/${recommendedSymbol}`);
           if (!res.ok) throw new Error(`Failed to fetch stock ${recommendedSymbol}`);
           return (await res.json()) as StockData;
         })

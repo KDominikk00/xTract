@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchMarketData } from "@/lib/fetchStock";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import PageLayout from "@/components/PageLayout";
@@ -54,7 +55,7 @@ export default function Followed() {
         return;
       }
 
-      const quotesRes = await fetch("/api/stocks/quotes", {
+      const quotesRes = await fetchMarketData("/api/stocks/quotes", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

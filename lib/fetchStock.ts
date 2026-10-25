@@ -1,4 +1,6 @@
 // FetchStock.ts
+import { trackSlowRequest } from "@/lib/wakeStatus";
+
 export type Stock = {
   symbol: string;
   name: string;
@@ -84,7 +86,13 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function fetchWithRetry(url: string, init: RequestInit = {}): Promise<Response> {
+// Fetch for any market-data route: retries transient failures and drives the "server is waking up" notice.
+export function fetchMarketData(url: string, init: RequestInit = {}): Promise<Response> {
+  // Shows the "server is waking up" notice if this takes longer than a few seconds.
+  return trackSlowRequest(() => fetchWithRetryInner(url, init));
+}
+
+async function fetchWithRetryInner(url: string, init: RequestInit): Promise<Response> {
   for (let attempt = 0; ; attempt += 1) {
     const isLastAttempt = attempt >= CLIENT_RETRY_DELAYS_MS.length;
     try {
@@ -102,7 +110,7 @@ async function fetchStocks(endpoint: string, limit?: number): Promise<Stock[]> {
   const url = new URL(toAppUrl(`/api/stocks/${endpoint}`));
   if (limit) url.searchParams.set("n", limit.toString());
 
-  const res = await fetchWithRetry(url.toString());
+  const res = await fetchMarketData(url.toString());
   if (!res.ok) throw new Error(`Failed to fetch ${endpoint}`);
 
   const data: unknown = await res.json();
@@ -132,7 +140,7 @@ export async function getNews(limit?: number): Promise<NewsArticle[]> {
   const url = new URL(toAppUrl("/api/stocks/news"));
   if (limit) url.searchParams.set("n", limit.toString());
 
-  const res = await fetchWithRetry(url.toString());
+  const res = await fetchMarketData(url.toString());
   if (!res.ok) throw new Error("Failed to fetch news");
 
   const data: unknown = await res.json();
@@ -151,7 +159,7 @@ export async function getNews(limit?: number): Promise<NewsArticle[]> {
 }
 
 export async function getSummary(): Promise<MarketSummary[]> {
-  const res = await fetchWithRetry(toAppUrl("/api/stocks/summary-data"));
+  const res = await fetchMarketData(toAppUrl("/api/stocks/summary-data"));
   if (!res.ok) throw new Error("Failed to fetch market summary");
   return res.json();
 }
@@ -163,7 +171,7 @@ export async function getHistory(
   signal?: AbortSignal
 ): Promise<Candle[]> {
   const path = `/api/stocks/history/${encodeURIComponent(symbol)}?period=${encodeURIComponent(period)}&interval=${encodeURIComponent(interval)}`;
-  const res = await fetchWithRetry(toAppUrl(path), { signal });
+  const res = await fetchMarketData(toAppUrl(path), { signal });
   const data: unknown = await res.json().catch(() => null);
 
   if (!res.ok) {
