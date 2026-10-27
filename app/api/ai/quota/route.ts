@@ -3,6 +3,9 @@ import { getUserTier } from "@/lib/aiPlan";
 import { getUserFromRequest } from "@/lib/server/auth";
 import { getServerQuotaSnapshot } from "@/lib/server/aiQuota";
 
+// Vercel function limit: stock API retries (cold start) and Gemini calls can take up to a minute.
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   try {
     const user = await getUserFromRequest(req);

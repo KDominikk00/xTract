@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/lib/server/rateLimit";
 import { fetchStockApi, readJson } from "@/lib/server/stockApi";
 
+// Vercel function limit: stock API retries (cold start) and Gemini calls can take up to a minute.
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   const limited = rateLimit(req, { name: "stocks-list", limit: 120, windowMs: 60_000 });
   if (limited) return limited;

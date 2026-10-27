@@ -3,6 +3,9 @@ import { normalizeSymbol } from "@/lib/symbols";
 import { rateLimit } from "@/lib/server/rateLimit";
 import { fetchStockApi, readJson } from "@/lib/server/stockApi";
 
+// Vercel function limit: stock API retries (cold start) and Gemini calls can take up to a minute.
+export const maxDuration = 60;
+
 // Only the ranges the charts use; arbitrary values would let callers trigger expensive upstream queries.
 const ALLOWED_PERIODS = new Set(["1d", "5d", "1mo", "3mo", "6mo", "ytd", "1y"]);
 const ALLOWED_INTERVALS = new Set(["5m", "15m", "30m", "1h", "1d"]);

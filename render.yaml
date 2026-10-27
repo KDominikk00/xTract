@@ -13,47 +13,7 @@ services:
         sync: false
       - key: FRONTEND_ORIGINS
         value: https://xtract.top
-      # Shared secret the web service sends as X-Stock-Api-Key; generated once and wired below.
+      # Shared secret the web app (hosted on Vercel) sends as X-Stock-Api-Key.
+      # Set the same value as STOCK_API_SECRET in the Vercel project settings.
       - key: STOCK_API_SECRET
-        generateValue: true
-
-  - type: web
-    name: xtract-web
-    runtime: node
-    buildCommand: npm ci && npm run build
-    startCommand: npm run start
-    envVars:
-      - key: NODE_VERSION
-        value: 20
-      - key: STOCK_API_HOSTPORT
-        fromService:
-          type: web
-          name: xtract-stock-api
-          property: hostport
-      - key: STOCK_API_BASE_URL
-        sync: false
-      - key: STOCK_API_SECRET
-        fromService:
-          type: web
-          name: xtract-stock-api
-          envVarKey: STOCK_API_SECRET
-      - key: NEXT_PUBLIC_APP_URL
-        value: https://xtract.top
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        sync: false
-      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: GEMINI_MODEL
-        value: gemini-2.5-flash-lite
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: STRIPE_PLUS_PRICE_ID
-        sync: false
-      - key: STRIPE_PRO_PRICE_ID
         sync: false

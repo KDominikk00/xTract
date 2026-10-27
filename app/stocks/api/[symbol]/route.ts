@@ -3,6 +3,9 @@ import { normalizeSymbol } from "@/lib/symbols";
 import { rateLimit } from "@/lib/server/rateLimit";
 import { fetchStockApi, readJson } from "@/lib/server/stockApi";
 
+// Vercel function limit: stock API retries (cold start) and Gemini calls can take up to a minute.
+export const maxDuration = 60;
+
 type StockApiQuote = Record<string, unknown>;
 
 function toNumber(value: unknown, fallback = 0): number {

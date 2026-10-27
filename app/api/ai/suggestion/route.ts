@@ -5,6 +5,9 @@ import { rateLimit } from "@/lib/server/rateLimit";
 import { getUserFromRequest } from "@/lib/server/auth";
 import { consumeServerQuota, refundServerQuota } from "@/lib/server/aiQuota";
 
+// Vercel function limit: stock API retries (cold start) and Gemini calls can take up to a minute.
+export const maxDuration = 60;
+
 type SuggestionBody = {
   symbol?: unknown;
   stock?: unknown;

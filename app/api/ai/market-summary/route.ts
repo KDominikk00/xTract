@@ -4,6 +4,9 @@ import { rateLimit } from "@/lib/server/rateLimit";
 import { getUserFromRequest } from "@/lib/server/auth";
 import { generateGeminiText } from "@/lib/server/gemini";
 
+// Vercel function limit: stock API retries (cold start) and Gemini calls can take up to a minute.
+export const maxDuration = 60;
+
 type SummaryInput = {
   symbol: string;
   name: string;
