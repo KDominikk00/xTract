@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PageLayout from "@/components/PageLayout";
 import { SiMinutemailer } from "react-icons/si";
@@ -10,10 +10,37 @@ import { supabase } from "@/lib/supabaseClient";
 function ConfirmEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "pending" | "success" | "error">("loading");
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  // Email links are single-use; React strict mode runs effects twice in dev, so verify only once per URL.
+  const verifiedFor = useRef<string | null>(null);
   const [message, setMessage] = useState<string>("Verifying your email...");
 
   useEffect(() => {
+    try {
+      setPendingEmail(sessionStorage.getItem("xtract:pending-email"));
+    } catch {
+      setPendingEmail(null);
+    }
+  }, []);
+
+  async function resendEmail() {
+    if (!pendingEmail) return;
+    setResendState("sending");
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: pendingEmail,
+      options: { emailRedirectTo: `${window.location.origin}/confirm-email` },
+    });
+    setResendState(error ? "error" : "sent");
+  }
+
+  useEffect(() => {
+    const urlKey = `${window.location.search}${window.location.hash}`;
+    if (verifiedFor.current === urlKey) return;
+    verifiedFor.current = urlKey;
+
     let isActive = true;
     let redirectTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -47,7 +74,18 @@ function ConfirmEmailContent() {
           }
 
           if (!sessionAccessToken || !sessionRefreshToken) {
-            throw new Error("No verification token found. Please open the latest email link.");
+            // No link yet: the visitor just signed up (or opened the page directly).
+            const { data: existing } = await supabase.auth.getSession();
+            if (!isActive) return;
+            if (existing.session?.user) {
+              setStatus("success");
+              setMessage("Your email is already confirmed. Redirecting to home...");
+              redirectTimer = setTimeout(() => router.push("/"), 3000);
+            } else {
+              setStatus("pending");
+              setMessage("We sent you a confirmation link. Open it from your inbox to finish creating your account.");
+            }
+            return;
           }
 
           const { error } = await supabase.auth.setSession({
@@ -92,6 +130,23 @@ function ConfirmEmailContent() {
 
           <p className="text-white text-sm">{message}</p>
 
+          {status === "pending" && (
+            <div className="mt-6 space-y-3 text-sm text-zinc-400">
+              <p>Can&apos;t find it? Check your spam folder.</p>
+              {pendingEmail && (
+                <button
+                  onClick={resendEmail}
+                  disabled={resendState === "sending" || resendState === "sent"}
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-60 rounded-lg text-white font-semibold transition-colors"
+                >
+                  {resendState === "sending" ? "Sending..." : resendState === "sent" ? "Email sent" : "Resend email"}
+                </button>
+              )}
+              {resendState === "error" && (
+                <p className="text-red-400">Couldn&apos;t resend right now. Please wait a minute and try again.</p>
+              )}
+            </div>
+          )}
           {status === "loading" && (
             <div className="mt-6 animate-pulse text-blue-500">Verifying...</div>
           )}
