@@ -23,7 +23,9 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export async function getOrCreateStripeCustomer(user: User): Promise<string> {
+// forceNew skips the stored customer id: used when Stripe reports it no longer exists
+// (for example the stored id was created under a different Stripe key or mode).
+export async function getOrCreateStripeCustomer(user: User, options: { forceNew?: boolean } = {}): Promise<string> {
   const { data: existing, error: existingError } = await supabaseAdmin
     .from("billing_customers")
     .select("stripe_customer_id")
@@ -33,7 +35,7 @@ export async function getOrCreateStripeCustomer(user: User): Promise<string> {
   if (existingError) {
     throw new Error(`Failed to load billing customer: ${existingError.message}`);
   }
-  if (existing?.stripe_customer_id) {
+  if (existing?.stripe_customer_id && !options.forceNew) {
     return existing.stripe_customer_id;
   }
 

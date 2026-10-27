@@ -1,6 +1,12 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { mapPriceToTier, normalizeStripeId, verifyStripeWebhookSignature } from "@/lib/server/stripe";
+import {
+  isMissingCustomerError,
+  mapPriceToTier,
+  normalizeStripeId,
+  StripeApiError,
+  verifyStripeWebhookSignature,
+} from "@/lib/server/stripe";
 
 const secret = "whsec_test";
 const payload = JSON.stringify({ id: "evt_1", type: "customer.subscription.updated" });
@@ -46,5 +52,14 @@ describe("helpers", () => {
     expect(normalizeStripeId({ id: "sub_2" })).toBe("sub_2");
     expect(normalizeStripeId({})).toBeNull();
     expect(normalizeStripeId("  ")).toBeNull();
+  });
+});
+
+describe("isMissingCustomerError", () => {
+  it("matches only Stripe's unknown-customer error", () => {
+    expect(isMissingCustomerError(new StripeApiError("No such customer", 400, "resource_missing", "customer"))).toBe(true);
+    expect(isMissingCustomerError(new StripeApiError("No such price", 400, "resource_missing", "line_items[0][price]"))).toBe(false);
+    expect(isMissingCustomerError(new StripeApiError("Rate limited", 429, "rate_limit"))).toBe(false);
+    expect(isMissingCustomerError(new Error("No such customer"))).toBe(false);
   });
 });

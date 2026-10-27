@@ -74,6 +74,23 @@ export function mapPriceToTier(priceId: string | null | undefined): "free" | "pl
   return "free";
 }
 
+export class StripeApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly param?: string
+  ) {
+    super(message);
+    this.name = "StripeApiError";
+  }
+}
+
+// True when Stripe says the referenced customer does not exist (e.g. data created under a different key/mode).
+export function isMissingCustomerError(error: unknown): boolean {
+  return error instanceof StripeApiError && error.code === "resource_missing" && error.param === "customer";
+}
+
 async function stripeRequest<T>(path: string, options: StripeRequestOptions = {}): Promise<T> {
   const { method = "GET", params, idempotencyKey } = options;
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
@@ -87,9 +104,9 @@ async function stripeRequest<T>(path: string, options: StripeRequestOptions = {}
     signal: AbortSignal.timeout(STRIPE_TIMEOUT_MS),
   });
 
-  const json = (await res.json()) as T & { error?: { message?: string } };
+  const json = (await res.json()) as T & { error?: { message?: string; code?: string; param?: string } };
   if (!res.ok) {
-    throw new Error(json.error?.message ?? "Stripe request failed");
+    throw new StripeApiError(json.error?.message ?? "Stripe request failed", res.status, json.error?.code, json.error?.param);
   }
 
   return json;

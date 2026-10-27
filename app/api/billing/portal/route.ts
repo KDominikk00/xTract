@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromRequest } from "@/lib/server/auth";
 import { getCustomerIdForUser } from "@/lib/server/billing";
-import { createStripeBillingPortalSession } from "@/lib/server/stripe";
+import { createStripeBillingPortalSession, isMissingCustomerError } from "@/lib/server/stripe";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,10 +16,19 @@ export async function POST(req: NextRequest) {
     }
 
     const origin = process.env.NEXT_PUBLIC_APP_URL ?? req.nextUrl.origin;
-    const portal = await createStripeBillingPortalSession({
-      customerId,
-      returnUrl: `${origin}/`,
-    });
+    let portal;
+    try {
+      portal = await createStripeBillingPortalSession({
+        customerId,
+        returnUrl: `${origin}/`,
+      });
+    } catch (error) {
+      // Stored id is unknown to the current Stripe key: treat as "no billing account" instead of a server error.
+      if (isMissingCustomerError(error)) {
+        return NextResponse.json({ error: "No billing account found." }, { status: 404 });
+      }
+      throw error;
+    }
 
     return NextResponse.json({ url: portal.url });
   } catch (err) {
